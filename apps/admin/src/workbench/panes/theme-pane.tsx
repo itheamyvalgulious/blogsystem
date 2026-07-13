@@ -3,26 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, type ThemeGroupsPayload } from "../../api";
 
 import type { PaneComponentProps } from "../types";
-
-function normalizeThemeGroupId(value: string) {
-  const trimmed = value.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/{2,}/g, "/");
-
-  if (!trimmed) {
-    return null;
-  }
-
-  return trimmed
-    .split("/")
-    .map((segment) =>
-      segment
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-    )
-    .filter(Boolean)
-    .join("/");
-}
+import { normalizeThemeGroupId } from "../theme-utils";
 
 export function ThemePane({ api: workbenchApi }: PaneComponentProps) {
   const [themeGroups, setThemeGroups] = useState<ThemeGroupsPayload | null>(null);

@@ -10,6 +10,7 @@ import {
 } from "./quiver-geometry.js";
 import { parseFenceParams } from "./fence-params.js";
 import { parseTikzcd } from "./tikzcd-parser.js";
+import { convertTikzLengthToPercent } from "./quiver-data.js";
 
 export type { CommutativeFenceParams } from "./fence-params.js";
 export { parseFenceParams } from "./fence-params.js";
@@ -19,6 +20,7 @@ export type {
 } from "./tikzcd-parser.js";
 export { parseTikzcd } from "./tikzcd-parser.js";
 export {
+  convertTikzLengthToPercent,
   defaultEdgeOptions,
   toCommutativeDocument
 } from "./quiver-data.js";
@@ -85,6 +87,13 @@ export interface CommutativeEdgeOptions {
   radius?: number;
   shape?: "arc" | "bezier";
   shorten?: CommutativeShorten;
+  /**
+   * tikzcd `shorten </>` is given in pt and needs the rendered arc length +
+   * edge angle to convert to a percentage, so the raw pt values are carried
+   * here for the renderer to convert. Absent on base64/quiver documents,
+   * where `shorten` already holds a 0..100 percentage.
+   */
+  shortenPt?: { source: number; target: number };
   style?: CommutativeEdgeStyle;
 }
 
@@ -1051,6 +1060,33 @@ function labelPointForAlignment(
   };
 }
 
+function resolveEdgeShortenPercent(
+  options: CommutativeEdgeOptions | undefined,
+  angle: number,
+  arcLength: number
+): { source: number; target: number } {
+  const rawShorten = options?.shortenPt;
+  if (rawShorten && arcLength > 0 && Number.isFinite(angle)) {
+    // tikzcd `shorten </>` is in pt; convert to a 0..100 percentage of the arc
+    // using the same multiplier quiver applies in QuiverImportExport.tikz_cd.
+    const convert = (length: number) => convertTikzLengthToPercent(length, arcLength, angle);
+    let source = convert(rawShorten.source);
+    let target = convert(rawShorten.target);
+    if (source + target >= 100) {
+      // Upstream resets both when they would consume the whole arc.
+      source = 0;
+      target = 0;
+    }
+    return { source, target };
+  }
+  // Base64/quiver path (or a degenerate arc): `shorten` already holds a 0..100
+  // percentage. Use it directly so that path is unchanged.
+  return {
+    source: options?.shorten?.source ?? 0,
+    target: options?.shorten?.target ?? 0
+  };
+}
+
 function renderQuiverArrowEdge(
   edge: CommutativeEdgeCell,
   source: RenderNode,
@@ -1107,11 +1143,11 @@ function renderQuiverArrowEdge(
     start: typeof firstTail === "string" && firstTail.startsWith("hook") ? head_width : 0
   };
 
-  const toArcLength = (value: number | undefined) => value ?? 0;
   const visibleArcLength = localCurve.arc_length(end.t) - localCurve.arc_length(start.t);
+  const shortenPercent = resolveEdgeShortenPercent(edge.options, angle, visibleArcLength);
   style.shorten = {
-    head: (visibleArcLength * toArcLength(edge.options?.shorten?.target)) / 100,
-    tail: (visibleArcLength * toArcLength(edge.options?.shorten?.source)) / 100
+    head: (visibleArcLength * shortenPercent.target) / 100,
+    tail: (visibleArcLength * shortenPercent.source) / 100
   };
 
   const adjust_dash_padding = (

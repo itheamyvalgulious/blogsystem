@@ -63,7 +63,7 @@ status: draft
 
   await agent.post("/api/auth/login").send({ username: "admin", password: "secret" }).expect(200);
 
-  return { tempRoot, assetsRoot, contentRoot, projectsRoot, agent };
+  return { tempRoot, assetsRoot, contentRoot, projectsRoot, app, agent };
 }
 
 test("site dist is served from the server root with static 404 fallback", async () => {
@@ -72,6 +72,23 @@ test("site dist is served from the server root with static 404 fallback", async 
   await agent.get("/").expect(200).expect(/Site Home/);
   await agent.get("/posts/demo/").expect(200).expect(/Demo Article/);
   await agent.get("/missing-page/").expect(404).expect(/Site 404/);
+});
+
+test("raw content/media/theme static mounts require authentication", async () => {
+  const { app } = await setupTempApp();
+  const anon = request.agent(app);
+
+  // draft.md exists in contentRoot; an unauthenticated reader must not get the
+  // raw markdown (which would include protected articles' frontmatter password).
+  await anon.get("/content-files/notes/draft.md").expect(401);
+  await anon.get("/media/anything.png").expect(401);
+  await anon.get("/theme-files/anything").expect(401);
+});
+
+test("authenticated requests can still read raw content via static mounts", async () => {
+  const { agent } = await setupTempApp();
+
+  await agent.get("/content-files/notes/draft.md").expect(200).expect(/Draft Note/);
 });
 
 test("save endpoint fills missing title from first heading", async () => {
@@ -373,6 +390,133 @@ test("saving file metadata does not bake inherited folder password into article 
   const childRaw = await fs.readFile(path.join(contentRoot, "notes", "inherited", "child.md"), "utf8");
   assert.match(childRaw, /^summary: Child summary/m);
   assert.doesNotMatch(childRaw, /^password: folder-pass/m);
+});
+
+test("clearing folder metadata removes the folder metadata indicator", async () => {
+  const { agent, contentRoot } = await setupTempApp();
+
+  const findFolder = (
+    nodes: Array<{ path?: string; type?: string; children?: unknown[] }>,
+    target: string
+  ): { hasMetadata?: boolean } | undefined => {
+    for (const node of nodes) {
+      if (node.path === target && node.type === "directory") {
+        return node;
+      }
+      if (node.children) {
+        const found = findFolder(node.children as Array<{ path?: string; type?: string; children?: unknown[] }>, target);
+        if (found) {
+          return found;
+        }
+      }
+    }
+    return undefined;
+  };
+
+  await agent
+    .post("/api/fs/create")
+    .send({ parentPath: "notes", entryType: "directory", name: "meta-folder" })
+    .expect(200);
+
+  await agent
+    .post("/api/fs/metadata")
+    .send({ path: "notes/meta-folder", metadata: { title: "Meta Folder" } })
+    .expect(200);
+
+  const metadataPath = path.join(contentRoot, "notes", "meta-folder", ".blog-system-folder.json");
+  await fs.access(metadataPath);
+
+  const treeWithMeta = (await agent.get("/api/tree").expect(200)).body.fileTree as Array<{
+    path?: string;
+    type?: string;
+    children?: unknown[];
+  }>;
+  assert.equal(findFolder(treeWithMeta, "notes/meta-folder")?.hasMetadata, true);
+
+  await agent
+    .post("/api/fs/metadata")
+    .send({
+      path: "notes/meta-folder",
+      metadata: {
+        title: "",
+        status: "",
+        date: "",
+        summary: "",
+        slug: "",
+        password: "",
+        tags: [],
+        top: ""
+      }
+    })
+    .expect(200);
+
+  const treeWithoutMeta = (await agent.get("/api/tree").expect(200)).body.fileTree as Array<{
+    path?: string;
+    type?: string;
+    children?: unknown[];
+  }>;
+  assert.equal(findFolder(treeWithoutMeta, "notes/meta-folder")?.hasMetadata, false);
+
+  await assert.rejects(() => fs.access(metadataPath));
+});
+
+test("a folder with a legacy empty metadata file does not show a metadata indicator", async () => {
+  const { agent, contentRoot } = await setupTempApp();
+
+  const findFolder = (
+    nodes: Array<{ path?: string; type?: string; children?: unknown[] }>,
+    target: string
+  ): { hasMetadata?: boolean } | undefined => {
+    for (const node of nodes) {
+      if (node.path === target && node.type === "directory") {
+        return node;
+      }
+      if (node.children) {
+        const found = findFolder(node.children as Array<{ path?: string; type?: string; children?: unknown[] }>, target);
+        if (found) {
+          return found;
+        }
+      }
+    }
+    return undefined;
+  };
+
+  await agent
+    .post("/api/fs/create")
+    .send({ parentPath: "notes", entryType: "directory", name: "empty-meta" })
+    .expect(200);
+
+  // Simulate a leftover empty "{}" metadata file (the state the user reported).
+  await fs.writeFile(
+    path.join(contentRoot, "notes", "empty-meta", ".blog-system-folder.json"),
+    "{}\n",
+    "utf8"
+  );
+
+  const tree = (await agent.get("/api/tree").expect(200)).body.fileTree as Array<{
+    path?: string;
+    type?: string;
+    children?: unknown[];
+  }>;
+  assert.equal(findFolder(tree, "notes/empty-meta")?.hasMetadata, false);
+});
+
+test("saveFileSystemMetadata accepts comma-separated string tags and normalizes them", async () => {
+  const { agent, contentRoot } = await setupTempApp();
+
+  await agent
+    .post("/api/fs/create")
+    .send({ parentPath: "notes", entryType: "directory", name: "str-tags" })
+    .expect(200);
+
+  await agent
+    .post("/api/fs/metadata")
+    .send({ path: "notes/str-tags", metadata: { tags: "alpha, beta " } })
+    .expect(200);
+
+  const raw = await fs.readFile(path.join(contentRoot, "notes", "str-tags", ".blog-system-folder.json"), "utf8");
+  const parsed = JSON.parse(raw) as { tags?: unknown };
+  assert.deepEqual(parsed.tags, ["alpha", "beta"]);
 });
 
 test("creating an article with a duplicate title returns a conflict payload", async () => {

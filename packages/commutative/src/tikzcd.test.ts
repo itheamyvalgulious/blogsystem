@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseCommutative, renderCommutativeFence } from "./index.js";
+import { convertTikzLengthToPercent, parseCommutative, renderCommutativeFence } from "./index.js";
 import { parseTikzcd } from "./tikzcd-parser.js";
 
 test("parseTikzcd handles a 2x2 square diagram", () => {
@@ -176,4 +176,44 @@ test("renderCommutativeFence centers by default", () => {
   const out = renderCommutativeFence(body, "");
   // No explicit width / scale / margin, so the figure renders without inline style.
   assert.match(out.html, /<figure class="commutative" data-commutative>/);
+});
+
+test("convertTikzLengthToPercent converts pt to a rounded percentage of the arc", () => {
+  // angle 0: multiplier collapses to TIKZ_HORIZONTAL_MULTIPLIER (1/4);
+  // 10pt over a 100-unit arc -> round(10 / (100 * 0.25) * 100 / 5) * 5 = 40.
+  assert.equal(convertTikzLengthToPercent(10, 100, 0), 40);
+  // angle pi/2: multiplier collapses to TIKZ_VERTICAL_MULTIPLIER (1/6);
+  // 10pt over 100 -> round(10 / (100 / 6) * 100 / 5) * 5 = 60.
+  assert.equal(convertTikzLengthToPercent(10, 100, Math.PI / 2), 60);
+  assert.equal(convertTikzLengthToPercent(0, 100, 0), 0);
+  // Degenerate arc -> no shortening (avoid divide-by-zero).
+  assert.equal(convertTikzLengthToPercent(10, 0, 0), 0);
+});
+
+test("parseTikzcd converts `between` to percentage shorten at the data layer", () => {
+  const body = `
+A & B \\\\
+\\arrow[from=1-1, to=1-2, between={0.2}{0.8}]
+`.trim();
+  const result = parseTikzcd(body);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const edges = result.document.cells.filter((c: any) => c.kind === "edge");
+  assert.equal(edges.length, 1);
+  assert.deepEqual((edges[0] as any).options.shorten, { source: 20, target: 20 });
+  assert.equal((edges[0] as any).options.shortenPt, undefined);
+});
+
+test("parseTikzcd carries raw pt `shorten` on `shortenPt` for the renderer", () => {
+  const body = `
+A & B \\\\
+\\arrow[from=1-1, to=1-2, shorten <=10]
+`.trim();
+  const result = parseTikzcd(body);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const edges = result.document.cells.filter((c: any) => c.kind === "edge");
+  assert.equal(edges.length, 1);
+  assert.deepEqual((edges[0] as any).options.shortenPt, { source: 10, target: 0 });
+  assert.deepEqual((edges[0] as any).options.shorten, { source: 0, target: 0 });
 });

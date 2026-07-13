@@ -1618,6 +1618,9 @@ a {
 .context-menu {
   position: fixed;
   min-width: 180px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
   padding: 8px;
   border-radius: 12px;
   border: 1px solid var(--wb-border);

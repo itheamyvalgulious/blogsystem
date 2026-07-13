@@ -20,6 +20,7 @@ export interface ServerSettings {
   projectRoot: string;
   projectsRoot: string;
   port: number;
+  host: string;
   sessionSecret: string;
   siteDistDir: string;
   workspaceRoot: string;
@@ -38,6 +39,7 @@ export function getDefaultSettings(): ServerSettings {
     projectRoot,
     projectsRoot: workspacePaths.projectsRoot,
     port: Number(process.env.PORT ?? 8787),
+    host: process.env.HOST ?? "127.0.0.1",
     sessionSecret: process.env.SESSION_SECRET ?? "blog-system-dev-session-secret",
     siteDistDir: path.join(projectRoot, "apps", "site", "dist"),
     workspaceRoot: workspacePaths.workspaceRoot

@@ -108,9 +108,23 @@ async function walkFileSystemTree(
       const metadataPath = path.join(absoluteDir, entry.name, DIRECTORY_METADATA_FILE_NAME);
       let hasMetadata = false;
       try {
-        await fs.access(metadataPath);
-        hasMetadata = true;
-      } catch {}
+        // The indicator should reflect meaningful content, not mere file
+        // existence: a leftover empty "{}" file (e.g. from a prior clear) must
+        // not keep the dot lit.
+        const raw = await fs.readFile(metadataPath, "utf8");
+        const parsed = JSON.parse(raw);
+        hasMetadata =
+          parsed !== null &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed) &&
+          Object.keys(parsed).length > 0;
+      } catch (error) {
+        // ENOENT (no file) or a malformed JSON file: no indicator. Saving via
+        // the folder metadata dialog repairs the file either way.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          hasMetadata = false;
+        }
+      }
 
       nodes.push({
         type: "directory",
@@ -363,7 +377,13 @@ export function resolveContentPath(contentRoot: string, relativePath: string): s
   const absoluteRoot = path.resolve(contentRoot);
   const resolved = path.resolve(absoluteRoot, relativePath);
 
-  if (!resolved.startsWith(absoluteRoot)) {
+  // Separator-aware containment. A bare startsWith(absoluteRoot) is bypassable
+  // by a sibling directory whose name extends the root's basename, e.g.
+  // contentRoot=".../content" and relativePath="../content-evil/secret" resolves
+  // to ".../content-evil/secret", which still startsWith ".../content". Require
+  // either an exact match (the root itself) or that the resolved path continues
+  // with a path separator right after the root prefix.
+  if (resolved !== absoluteRoot && !resolved.startsWith(absoluteRoot + path.sep)) {
     throw new Error("Path escapes the content root.");
   }
 

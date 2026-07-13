@@ -109,6 +109,29 @@ export function defaultEdgeOptions(): ParserEdgeOptions {
   };
 }
 
+/**
+ * Convert a tikzcd pt `shorten` value to a 0..100 percentage of the arc, using
+ * the multiplier from `QuiverImportExport.tikz_cd` (parser.mjs:245-261). The
+ * renderer has the arc length and edge angle at render time; this is the pure
+ * conversion those values feed into. Mirrors upstream `convert_length`.
+ */
+export function convertTikzLengthToPercent(
+  length: number,
+  arcLength: number,
+  angle: number
+): number {
+  const h = PARSER_DEFAULTS.TIKZ_HORIZONTAL_MULTIPLIER;
+  const v = PARSER_DEFAULTS.TIKZ_VERTICAL_MULTIPLIER;
+  const denominator = Math.sqrt(h * h * Math.sin(angle) ** 2 + v * v * Math.cos(angle) ** 2);
+  const multiplier = denominator === 0 ? 0 : (h * v) / denominator;
+  if (multiplier === 0 || arcLength <= 0) {
+    return 0;
+  }
+  const ROUND_TO = 5;
+  const pct = Math.round((length / (arcLength * multiplier) * 100) / ROUND_TO) * ROUND_TO;
+  return Math.max(0, Math.min(100, pct));
+}
+
 function endpointKey(endpoint: ParserEndpoint): string {
   if (typeof endpoint === "string") {
     return endpoint;
@@ -193,8 +216,30 @@ function rgbToHsl(r: number, g: number, b: number, a: number): CommutativeColour
  */
 function buildCommutativeEdgeOptions(
   options: ParserEdgeOptions,
-  shortenInput: { source: number; target: number }
+  shortenInput: { source: number; target: number },
+  between: { source: number | null; target: number | null }
 ): CommutativeEdgeOptions {
+  // tikzcd offers two ways to shorten an arrow: `between={a}{b}` places the
+  // endpoints at fractions a..b of the arc (0..1), and `shorten </>` trims a
+  // given number of pt off each end. `between` is pure arithmetic → percentages
+  // here; `shorten` is in pt and needs the rendered arc length + edge angle, so
+  // the raw pt values ride along on `shortenPt` for the renderer to convert.
+  let shorten: { source: number; target: number };
+  let shortenPt: { source: number; target: number } | undefined;
+  if (between.source !== null && between.target !== null) {
+    shorten = {
+      source: between.source * 100,
+      target: 100 - between.target * 100
+    };
+    if (shorten.source + shorten.target >= 100) {
+      shorten = { source: 0, target: 0 };
+    }
+    shortenPt = undefined;
+  } else {
+    shorten = { source: 0, target: 0 };
+    shortenPt = { source: shortenInput.source, target: shortenInput.target };
+  }
+
   const out: CommutativeEdgeOptions = {
     angle: options.angle,
     colour: colourToCommutative(options.colour),
@@ -205,7 +250,8 @@ function buildCommutativeEdgeOptions(
     offset: options.offset,
     radius: options.radius,
     shape: options.shape,
-    shorten: { source: shortenInput.source, target: shortenInput.target },
+    shorten,
+    shortenPt,
     style: {
       body: { name: options.style.body.name },
       head: { name: options.style.head.name, side: options.style.head.side },
@@ -284,7 +330,7 @@ export function toCommutativeDocument(input: ToCommutativeInput): CommutativeDoc
       kind: "edge",
       label: edge.label,
       labelColour: colourToCommutative(edge.label_colour),
-      options: buildCommutativeEdgeOptions(edge.options, edge.shorten),
+      options: buildCommutativeEdgeOptions(edge.options, edge.shorten, edge.between),
       source: realSource,
       target: realTarget
     });

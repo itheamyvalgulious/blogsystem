@@ -8,6 +8,7 @@ import type {
   SiteDirectoryPage,
   TagInfo
 } from "@blog-system/content-core";
+import { escapeHtml } from "./escape.js";
 
 const textEncoder = new TextEncoder();
 const PROTECTED_CONTENT_VERSION = 1;
@@ -28,15 +29,6 @@ export interface ProtectedContentPayload {
   iv: string;
   salt: string;
   version: number;
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function cloneProtectedSummary(article: ArticleSummary): ArticleSummary {

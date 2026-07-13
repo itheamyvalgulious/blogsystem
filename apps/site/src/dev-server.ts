@@ -2,21 +2,13 @@ import express from "express";
 import chokidar from "chokidar";
 
 import { buildSite, getSiteSettings } from "./generator.js";
+import { escapeHtml } from "./escape.js";
 
 const settings = getSiteSettings();
 const app = express();
 const port = Number(process.env.SITE_PORT ?? 4173);
 
 let lastBuildError: unknown = null;
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function renderBuildErrorPage(error: unknown) {
   const message =

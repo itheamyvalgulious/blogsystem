@@ -40,7 +40,9 @@ export async function startServer(customSettings?: Partial<ServerSettings>): Pro
 
     server.once("error", handleError);
     server.once("listening", handleListening);
-    server.listen(settings.port);
+    // Bind to the configured host (defaults to loopback) so the server is not
+    // reachable from the LAN unless explicitly opted in via HOST=0.0.0.0.
+    server.listen(settings.port, settings.host);
   });
 
   return {
@@ -64,7 +66,7 @@ export async function startServer(customSettings?: Partial<ServerSettings>): Pro
 if (isDirectExecution()) {
   void startServer()
     .then(({ settings }) => {
-      console.log(`Blog system API listening on http://localhost:${settings.port}`);
+      console.log(`Blog system API listening on http://${settings.host}:${settings.port}`);
     })
     .catch((error) => {
       console.error(error);

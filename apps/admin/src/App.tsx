@@ -1,4 +1,4 @@
-import { startTransition, type SetStateAction, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, type SetStateAction, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { loader, type OnMount } from "@monaco-editor/react";
 import * as monacoEditor from "monaco-editor";
 import GithubSlugger from "github-slugger";
@@ -6,6 +6,10 @@ import "monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2.j
 import "katex/dist/katex.min.css";
 import katexCssRaw from "katex/dist/katex.min.css?raw";
 import "./monaco-environment";
+
+import { ActivityIcon } from "./components/ActivityIcon";
+import { CommandPalette } from "./components/CommandPalette";
+import { LoginView } from "./components/LoginView";
 
 import {
   extractMarkdownBlocks,
@@ -81,6 +85,7 @@ import {
 } from "./markdown-outline";
 import { builtInPlugins } from "./workbench/builtins";
 import { resolvePreferredEditorId } from "./workbench/editor-associations";
+import { normalizeThemeGroupId } from "./workbench/theme-utils";
 import { PluginRuntime } from "./workbench/plugin-runtime";
 import type {
   ArticleWorkbenchDocument,
@@ -262,26 +267,6 @@ const PUBLISH_CONFIG_DOCUMENT_META = {
   path: "config/site-publish.local.json"
 } as const;
 
-function normalizeThemeGroupId(value: string) {
-  const trimmed = value.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/{2,}/g, "/");
-
-  if (!trimmed) {
-    return null;
-  }
-
-  return trimmed
-    .split("/")
-    .map((segment) =>
-      segment
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-    )
-    .filter(Boolean)
-    .join("/");
-}
-
 function getThemeGroupDocumentPath(groupId: string) {
   return `config/theme/${groupId}/theme.json`;
 }
@@ -324,97 +309,6 @@ function getDocumentPath(document: WorkbenchDocument | null, fallbackPath: strin
   }
 
   return fallbackPath ?? document.title;
-}
-
-function ActivityIcon({ icon }: { icon: string }) {
-  const commonProps = {
-    "aria-hidden": true,
-    className: "activity-icon",
-    fill: "none",
-    stroke: "currentColor",
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    strokeWidth: 1.8,
-    viewBox: "0 0 24 24"
-  };
-
-  switch (icon) {
-    case "explorer":
-      return (
-        <svg {...commonProps}>
-          <path d="M3.5 6.5h6l2 2h9v9.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
-          <path d="M3.5 6.5v-1a2 2 0 0 1 2-2h4l2 2h5a2 2 0 0 1 2 2v1" />
-        </svg>
-      );
-    case "edit":
-      return (
-        <svg {...commonProps}>
-          <path d="M4.5 19.5h4l9.5-9.5-4-4L4.5 15.5z" />
-          <path d="M12.5 7.5l4 4" />
-          <path d="M4.5 19.5l3-1" />
-        </svg>
-      );
-    case "plugins":
-      return (
-        <svg {...commonProps}>
-          <path d="M10 4.5h4v5h5v5h-5v5h-4v-5H5v-5h5z" />
-        </svg>
-      );
-    case "outline":
-      return (
-        <svg {...commonProps}>
-          <path d="M6 6.5h12" />
-          <path d="M6 11.5h8" />
-          <path d="M6 16.5h10" />
-          <circle cx="18" cy="11.5" r="1.5" />
-          <circle cx="18" cy="16.5" r="1.5" />
-        </svg>
-      );
-    case "media":
-      return (
-        <svg {...commonProps}>
-          <rect x="4" y="5" width="16" height="14" rx="2.5" />
-          <circle cx="9" cy="10" r="1.5" />
-          <path d="M6.5 17l4.5-4.5 3.5 3.5 2-2 1.5 1.5" />
-        </svg>
-      );
-    case "git":
-      return (
-        <svg {...commonProps}>
-          <circle cx="8" cy="6.5" r="2" />
-          <circle cx="16" cy="17.5" r="2" />
-          <circle cx="16" cy="6.5" r="2" />
-          <path d="M10 6.5h4" />
-          <path d="M8 8.5v5a4 4 0 0 0 4 4h2" />
-        </svg>
-      );
-    case "command":
-      return (
-        <svg {...commonProps}>
-          <path d="M8.5 7.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0v9a2 2 0 1 1-4 0" />
-          <path d="M19.5 7.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0v9a2 2 0 1 1-4 0" />
-          <path d="M6.5 10.5h11" />
-          <path d="M6.5 13.5h11" />
-        </svg>
-      );
-    case "project":
-      return (
-        <svg {...commonProps}>
-          <rect x="4" y="5" width="16" height="14" rx="2.5" />
-          <path d="M8 9.5h8" />
-          <path d="M8 13.5h5" />
-          <path d="M8 17.5h8" />
-        </svg>
-      );
-    default:
-      return (
-        <svg {...commonProps}>
-          <rect x="5" y="5" width="14" height="14" rx="3" />
-          <path d="M12 8v8" />
-          <path d="M8 12h8" />
-        </svg>
-      );
-  }
 }
 
 const CORE_MODULES = [
@@ -1283,134 +1177,6 @@ function isWorkbenchTabShortcutEvent(event: Pick<KeyboardEvent, "ctrlKey" | "met
   );
 }
 
-function LoginView({
-  busy,
-  error,
-  onLogin
-}: {
-  busy: boolean;
-  error: string | null;
-  onLogin: (username: string, password: string) => Promise<void>;
-}) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("changeme123");
-
-  return (
-    <div className="login-shell">
-      <div className="login-card">
-        <div>
-          <p className="title-overline">Knowledge Base Admin</p>
-          <h1>Admin Workbench</h1>
-        </div>
-        <form
-          className="login-form"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            await onLogin(username, password);
-          }}
-        >
-          <label>
-            <span>Username</span>
-            <input value={username} onChange={(event) => setUsername(event.target.value)} />
-          </label>
-          <label>
-            <span>Password</span>
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-          </label>
-          {error ? <p className="error-text">{error}</p> : null}
-          <button className="action-button primary" disabled={busy} type="submit">
-            {busy ? "Signing in..." : "Sign In"}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function CommandPalette({
-  emptyMessage,
-  open,
-  onSubmitQuery,
-  title,
-  placeholder,
-  query,
-  selectedIndex,
-  items,
-  onQueryChange,
-  onClose,
-  onSelectIndex,
-  onExecute
-}: {
-  emptyMessage?: string;
-  open: boolean;
-  onSubmitQuery?: () => void;
-  title: string;
-  placeholder: string;
-  query: string;
-  selectedIndex: number;
-  items: Array<{ id: string; title: string; description?: string }>;
-  onQueryChange: (query: string) => void;
-  onClose: () => void;
-  onSelectIndex: (index: number) => void;
-  onExecute: (id: string) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      queueMicrotask(() => inputRef.current?.focus());
-    }
-  }, [open]);
-
-  if (!open) {
-    return null;
-  }
-
-  return (
-    <div className="command-palette-backdrop" onClick={onClose} role="presentation">
-      <div
-        className="command-palette"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            onSelectIndex(items.length === 0 ? 0 : Math.min(selectedIndex + 1, items.length - 1));
-          } else if (event.key === "ArrowUp") {
-            event.preventDefault();
-            onSelectIndex(items.length === 0 ? 0 : Math.max(selectedIndex - 1, 0));
-          } else if (event.key === "Enter") {
-            event.preventDefault();
-            const activeItem = items[selectedIndex];
-            if (activeItem) {
-              onExecute(activeItem.id);
-            } else {
-              onSubmitQuery?.();
-            }
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            onClose();
-          }
-        }}
-      >
-        <div className="command-palette-header">{title}</div>
-        <input className="command-palette-input" placeholder={placeholder} ref={inputRef} value={query} onChange={(event) => onQueryChange(event.target.value)} />
-        <div className="command-palette-results">
-          {items.length === 0 ? (
-            <div className="command-item empty">{emptyMessage ?? "No results."}</div>
-          ) : (
-            items.map((item, index) => (
-              <button className={`command-item ${index === selectedIndex ? "is-active" : ""}`} key={item.id} onClick={() => onExecute(item.id)} onMouseEnter={() => onSelectIndex(index)} type="button">
-                <strong>{item.title}</strong>
-                {item.description ? <span>{item.description}</span> : null}
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function App() {
   const [initialArticleCursorStates] = useState(loadStoredArticleCursorStates);
   const [initialCollapsedTreePaths] = useState(() =>
@@ -1473,6 +1239,32 @@ export function App() {
   const [selectedTreePath, setSelectedTreePath] = useState<string | null>(null);
   const [collapsedTreePaths, setCollapsedTreePaths] = useState<Set<string>>(initialCollapsedTreePaths);
   const [contextMenuState, setContextMenuState] = useState<{ path: string; x: number; y: number } | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!contextMenuState) {
+      return;
+    }
+    const menu = contextMenuRef.current;
+    const margin = 4;
+    let left = contextMenuState.x;
+    let top = contextMenuState.y;
+    if (menu) {
+      const rect = menu.getBoundingClientRect();
+      const maxLeft = window.innerWidth - rect.width - margin;
+      const maxTop = window.innerHeight - rect.height - margin;
+      // Not enough room to the right: open to the left of the cursor.
+      if (left > maxLeft) {
+        left = Math.max(margin, contextMenuState.x - rect.width);
+      }
+      // Not enough room below: open above the cursor so the menu never leaves
+      // the viewport.
+      if (top > maxTop) {
+        top = Math.max(margin, contextMenuState.y - rect.height);
+      }
+    }
+    setContextMenuPos({ left, top });
+  }, [contextMenuState]);
   const [treeClipboard, setTreeClipboard] = useState<{ path: string; mode: "copy" | "move" } | null>(null);
   const [fileDialog, setFileDialog] = useState<{
     entryType: "file" | "directory";
@@ -1589,8 +1381,10 @@ export function App() {
     []
   );
   const activeDocument = useMemo(() => documents.find((document) => document.id === activeDocumentId) ?? null, [documents, activeDocumentId]);
-  activeDocumentIdRef.current = activeDocumentId;
-  dirtyDocumentIdsRef.current = new Set(documents.filter((document) => document.dirty).map((document) => document.id));
+  useLayoutEffect(() => {
+    activeDocumentIdRef.current = activeDocumentId;
+    dirtyDocumentIdsRef.current = new Set(documents.filter((document) => document.dirty).map((document) => document.id));
+  }, [activeDocumentId, documents]);
   const normalizedConfig = useMemo(() => buildNormalizedEditorConfig(configPayload), [configPayload]);
   const fileTreeMap = useMemo(() => buildFileTreeMap(treePayload?.fileTree ?? []), [treePayload?.fileTree]);
   const selectedTreeNode = selectedTreePath ? fileTreeMap.get(selectedTreePath) ?? null : null;
@@ -3109,7 +2903,15 @@ export function App() {
             }
           : undefined
       );
+      // For directories, the rename dialog only carries its editable fields
+      // (tags/top). Merge with the folder's existing metadata so renaming does
+      // not silently drop status/password/summary/etc.
+      const renameMetadataBase =
+        dialog.entryType === "directory"
+          ? (await api.getFileSystemMetadata(result.path)).metadata
+          : {};
       await api.saveFileSystemMetadata(result.path, {
+        ...renameMetadataBase,
         ...dialog.metadata,
         ...(dialog.entryType === "file" && dialog.fileKind === "article"
           ? { title: dialog.value }
@@ -3666,7 +3468,9 @@ export function App() {
     publishStaticSite,
     setTheme: setThemeId
   };
-  workbenchApiRef.current = workbenchApi;
+  useLayoutEffect(() => {
+    workbenchApiRef.current = workbenchApi;
+  }, [workbenchApi]);
 
   useEffect(() => {
     window.localStorage.setItem("admin-disabled-plugins", JSON.stringify(disabledPluginIds));
@@ -5898,7 +5702,7 @@ export function App() {
 
       {contextMenuState ? (
         <div className="context-menu-backdrop" onClick={() => setContextMenuState(null)} role="presentation">
-          <div className="context-menu" style={{ left: contextMenuState.x, top: contextMenuState.y }} onClick={(event) => event.stopPropagation()}>
+          <div className="context-menu" ref={contextMenuRef} style={{ left: contextMenuPos.left, top: contextMenuPos.top }} onClick={(event) => event.stopPropagation()}>
             {[
               ["new-file", "New File"],
               ["new-directory", "New Folder"],

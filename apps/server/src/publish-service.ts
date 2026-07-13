@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { ServerSettings } from "./config.js";
+import { pathExists } from "./fs-utils.js";
 import { PublishTargetError } from "../../site/src/publish-targets/types.js";
 
 interface PublisherModule {
@@ -85,15 +85,6 @@ export function createNpmSpawnInvocation(
     args: npmArgs,
     command: normalizedCommand
   };
-}
-
-async function pathExists(targetPath: string) {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export async function resolvePublisherRuntime(projectRoot: string): Promise<PublisherRuntime> {

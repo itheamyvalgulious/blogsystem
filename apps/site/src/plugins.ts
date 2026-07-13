@@ -33,18 +33,10 @@ import {
   renderProtectedContentGate,
   sanitizeSiteDataForProtectedContent
 } from "./protected-content.js";
+import { escapeHtml } from "./escape.js";
 
 const HOME_PAGE_SIZE = 12;
 const COMMUTATIVE_SITE_PLUGIN_ID = "commutative";
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function buildTocTreeHtml(headings: HeadingItem[]): string {
   if (!headings.length) return "";

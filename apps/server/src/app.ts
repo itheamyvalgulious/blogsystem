@@ -1183,9 +1183,15 @@ export function createApp(customSettings?: Partial<ServerSettings>) {
     }
   });
 
-  app.use("/content-files", express.static(settings.contentRoot));
-  app.use("/media", express.static(settings.assetsRoot));
-  app.use("/theme-files", express.static(getThemeGroupsRoot(settings.configRoot)));
+  // These static mounts serve raw content/theme/media to the authenticated
+  // admin frontend (preview assets, theme preview, media library). They must
+  // NOT be public: /content-files exposes raw article markdown, including the
+  // frontmatter `password:` of protected articles, which would otherwise let
+  // an unauthenticated reader defeat the runtime AES-GCM protection by simply
+  // fetching the source. Gate them behind the session.
+  app.use("/content-files", requireAuth, express.static(settings.contentRoot));
+  app.use("/media", requireAuth, express.static(settings.assetsRoot));
+  app.use("/theme-files", requireAuth, express.static(getThemeGroupsRoot(settings.configRoot)));
 
   app.get("/admin/*splat", async (_req, res, next) => {
     try {

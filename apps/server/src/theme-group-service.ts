@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { pathExists } from "./fs-utils.js";
 
 import Ajv from "ajv";
 import {
@@ -128,19 +129,6 @@ function validateParsedThemeGroupConfig(value: unknown) {
   }
 
   return normalizeThemeGroupConfig(value);
-}
-
-async function pathExists(targetPath: string) {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return false;
-    }
-
-    throw error;
-  }
 }
 
 async function readLegacyThemePalette(configRoot: string) {

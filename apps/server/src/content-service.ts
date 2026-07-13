@@ -25,6 +25,7 @@ import {
   toArticleSummary,
   type ArticleRecord
 } from "@blog-system/content-core";
+import { assertPathExists, assertTargetAvailable } from "./fs-utils.js";
 
 const DIRECTORY_METADATA_FILE_NAME = ".blog-system-folder.json";
 
@@ -187,7 +188,20 @@ export async function createArticleFile(
 
 function normalizeRelativeEntryPath(relativePath = "") {
   const normalized = toPosixPath(relativePath).replace(/\/+$/g, "");
-  return normalized === "." ? "" : normalized;
+
+  if (normalized === "." || normalized === "") {
+    return "";
+  }
+
+  // Defense in depth alongside resolveContentPath: no legitimate caller needs a
+  // ".." segment, and rejecting them here stops crafted input (e.g.
+  // "../sibling/secret") before it reaches path resolution — even if the
+  // containment check in resolveContentPath is ever weakened later.
+  if (normalized.split("/").includes("..")) {
+    throw new Error("Path must not escape the content root.");
+  }
+
+  return normalized;
 }
 
 function isNonEmptyMetadataValue(value: unknown) {
@@ -214,6 +228,13 @@ async function writeDirectoryMetadata(
       ? path.posix.join(normalizedDirectoryPath, DIRECTORY_METADATA_FILE_NAME)
       : DIRECTORY_METADATA_FILE_NAME
   );
+  // An empty metadata object is semantically equivalent to having no local
+  // metadata file. Remove it so the folder no longer reports a metadata
+  // indicator (hasMetadata is derived from file existence in the file tree).
+  if (Object.keys(metadata).length === 0) {
+    await fs.rm(metadataPath, { force: true });
+    return;
+  }
   await fs.writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
 }
 
@@ -294,10 +315,11 @@ export async function saveFileSystemMetadata(
     const dirMetadata: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(metadata)) {
       if (key === "tags") {
-        if (Array.isArray(value)) {
-          const tags = normalizeTags(value);
-          if (tags.length > 0) dirMetadata.tags = tags;
-        }
+        // Accept both array and comma-separated string forms so callers that
+        // surface tags as a text input (e.g. the rename dialog) can save without
+        // a separate conversion step.
+        const tags = normalizeTags(value);
+        if (tags.length > 0) dirMetadata.tags = tags;
         continue;
       }
 
@@ -309,9 +331,11 @@ export async function saveFileSystemMetadata(
       }
 
       if (key === "status") {
-        if (value !== undefined) {
-          const status = normalizeStatus(value);
-          dirMetadata.status = status;
+        // Treat a blank status as "no override" so that clearing the metadata
+        // dialog can fully empty the folder's metadata file. normalizeStatus
+        // would otherwise coerce "" into the "draft" default.
+        if (value !== undefined && value !== null && value !== "") {
+          dirMetadata.status = normalizeStatus(value);
         }
         continue;
       }
@@ -415,31 +439,6 @@ function joinRelativePath(parentPath: string, name: string) {
   }
 
   return normalizeRelativeEntryPath(path.posix.join(parentPath, normalizedName));
-}
-
-async function assertPathExists(absolutePath: string) {
-  try {
-    await fs.access(absolutePath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error("Target path does not exist.");
-    }
-
-    throw error;
-  }
-}
-
-async function assertTargetAvailable(absolutePath: string) {
-  try {
-    await fs.access(absolutePath);
-    throw new Error("Target path already exists.");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return;
-    }
-
-    throw error;
-  }
 }
 
 function normalizeComparableTitle(title: string) {
