@@ -9,6 +9,8 @@ import {
   type AdminHomeConfig
 } from "@blog-system/content-core";
 
+import { ConfigValidationError } from "./errors.js";
+
 const ajv = new Ajv({ allErrors: true });
 const validateAdminHomeConfig = ajv.compile<AdminHomeConfig>(adminHomeConfigSchema);
 
@@ -21,7 +23,7 @@ function validateParsedAdminHomeConfig(value: unknown) {
     const message = (validateAdminHomeConfig.errors ?? [])
       .map((error) => `adminHomeConfig${error.instancePath} ${error.message}`)
       .join("; ");
-    throw new Error(message);
+    throw new ConfigValidationError(message);
   }
 
   return normalizeAdminHomeConfig(value);

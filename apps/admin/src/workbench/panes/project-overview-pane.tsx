@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { AdminHomeConfig } from "@blog-system/content-core";
+import { getErrorMessage, type AdminHomeConfig } from "@blog-system/content-core";
 
 import { api } from "../../api";
 
@@ -41,7 +41,9 @@ export function ProjectOverviewPane({
   }, []);
 
   useEffect(() => {
-    void loadHomeConfig();
+    queueMicrotask(() => {
+      void loadHomeConfig();
+    });
   }, [loadHomeConfig]);
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export function ProjectOverviewPane({
         notifyProjectHomeWidgetsChanged(nextValue);
         workbenchApi.showError(null);
       } catch (error) {
-        workbenchApi.showError((error as Error).message);
+        workbenchApi.showError(getErrorMessage(error));
       } finally {
         setUpdatingProjectId(null);
       }

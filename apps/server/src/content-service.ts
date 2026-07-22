@@ -26,6 +26,7 @@ import {
   type ArticleRecord
 } from "@blog-system/content-core";
 import { assertPathExists, assertTargetAvailable } from "./fs-utils.js";
+import { ApiError } from "./errors.js";
 
 const DIRECTORY_METADATA_FILE_NAME = ".blog-system-folder.json";
 
@@ -198,7 +199,7 @@ function normalizeRelativeEntryPath(relativePath = "") {
   // "../sibling/secret") before it reaches path resolution — even if the
   // containment check in resolveContentPath is ever weakened later.
   if (normalized.split("/").includes("..")) {
-    throw new Error("Path must not escape the content root.");
+    throw new ApiError(400, "Path must not escape the content root.");
   }
 
   return normalized;
@@ -388,7 +389,7 @@ export async function saveFileSystemMetadata(
     title:
       typeof metadata.title === "string" && metadata.title.trim()
         ? metadata.title.trim()
-        : rawFrontmatter.title ?? parsed.title,
+        : ((rawFrontmatter.title as string | undefined) ?? parsed.title),
     status:
       metadata.status !== undefined
         ? normalizeStatus(metadata.status)
@@ -435,7 +436,7 @@ function joinRelativePath(parentPath: string, name: string) {
   const normalizedName = name.trim().replace(/^\/+/, "");
 
   if (!normalizedName) {
-    throw new Error("Name is required.");
+    throw new ApiError(400, "Name is required.");
   }
 
   return normalizeRelativeEntryPath(path.posix.join(parentPath, normalizedName));
@@ -522,7 +523,7 @@ export async function createFileSystemEntry(
 
   await assertPathExists(absoluteParentPath);
   if (!(await isDirectory(absoluteParentPath))) {
-    throw new Error("Parent path must be a directory.");
+    throw new ApiError(400, "Parent path must be a directory.");
   }
 
   await assertTargetAvailable(absolutePath);
@@ -606,7 +607,7 @@ export async function deleteFileSystemEntry(contentRoot: string, relativePath: s
   const normalizedPath = normalizeRelativeEntryPath(relativePath);
 
   if (!normalizedPath) {
-    throw new Error("The content root cannot be deleted.");
+    throw new ApiError(400, "The content root cannot be deleted.");
   }
 
   const absolutePath = resolveContentPath(contentRoot, normalizedPath);
@@ -629,7 +630,7 @@ export async function transferFileSystemEntry(
   await assertPathExists(targetDirectoryAbsolutePath);
 
   if (!(await isDirectory(targetDirectoryAbsolutePath))) {
-    throw new Error("Paste target must be a directory.");
+    throw new ApiError(400, "Paste target must be a directory.");
   }
 
   const targetRelativePath = joinRelativePath(
@@ -638,14 +639,14 @@ export async function transferFileSystemEntry(
   );
 
   if (targetRelativePath === normalizedSourcePath) {
-    throw new Error(`Cannot ${mode} an entry onto itself.`);
+    throw new ApiError(400, `Cannot ${mode} an entry onto itself.`);
   }
 
   if (
     mode === "move" &&
     targetRelativePath.startsWith(`${normalizedSourcePath}/`)
   ) {
-    throw new Error("Cannot move a directory into one of its descendants.");
+    throw new ApiError(400, "Cannot move a directory into one of its descendants.");
   }
 
   const targetAbsolutePath = resolveContentPath(contentRoot, targetRelativePath);

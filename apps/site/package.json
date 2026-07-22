@@ -9,14 +9,15 @@
     "build-runtime": "tsup --config tsup.runtime.config.ts",
     "build-site": "tsx src/cli-build.ts",
     "publish-site": "tsx src/publish.ts",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",
     "@blog-system/commutative": "*",
     "@blog-system/content-core": "*",
+    "ajv": "^8.17.1",
     "chokidar": "^4.0.3",
-    "express": "^5.1.0",
-    "gh-pages": "^6.3.0"
+    "express": "^5.1.0"
   }
 }

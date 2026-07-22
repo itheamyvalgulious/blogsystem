@@ -1,3 +1,5 @@
+import { escapeHtmlAttribute } from "./utils.js";
+
 export interface MarkdownBlockRule {
   start: string;
   end: string;
@@ -95,14 +97,6 @@ export function findDuplicateMarkdownBlockRuleMarkers(config: MarkdownBlockConfi
     duplicateEnds,
     duplicateStarts
   };
-}
-
-function escapeHtmlAttribute(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 function renderOpenTag(rule: MarkdownBlockRule) {

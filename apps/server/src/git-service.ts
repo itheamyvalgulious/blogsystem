@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 
+import { ApiError } from "./errors.js";
+
 export interface GitChangedFile {
   path: string;
   status: string;
@@ -24,7 +26,7 @@ function runGit(args: string[], cwd: string) {
     const child = spawn("git", args, {
       cwd,
       shell: false,
-      env: process.env
+      env: { ...process.env, LC_ALL: "C" }
     });
     let stdout = "";
     let stderr = "";
@@ -145,12 +147,12 @@ export async function pushGitChanges(repositoryRoot: string) {
 
   const branchName = await getCurrentBranchName(repositoryRoot);
   if (!branchName) {
-    throw new Error("Unable to determine the current branch for push.");
+    throw new ApiError(400, "Unable to determine the current branch for push.");
   }
 
   const remoteNames = await getRemoteNames(repositoryRoot);
   if (!remoteNames.includes("origin")) {
-    throw new Error("No upstream is configured and no origin remote was found.");
+    throw new ApiError(400, "No upstream is configured and no origin remote was found.");
   }
 
   await runGit(["push", "-u", "origin", branchName], repositoryRoot);

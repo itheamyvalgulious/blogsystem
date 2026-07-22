@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { ConfigValidationError } from "./errors.js";
+
 export interface PublishConfigPayload {
   raw: string;
   value: {
@@ -20,15 +22,15 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function normalizePublishConfig(raw: unknown): PublishConfigPayload["value"] {
   if (!isObject(raw)) {
-    throw new Error("Publish config must be an object.");
+    throw new ConfigValidationError("Publish config must be an object.");
   }
 
   if (raw.defaultTarget !== "github" && raw.defaultTarget !== "cloudflare") {
-    throw new Error('Publish config requires "defaultTarget" to be "github" or "cloudflare".');
+    throw new ConfigValidationError('Publish config requires "defaultTarget" to be "github" or "cloudflare".');
   }
 
   if (!isObject(raw.targets)) {
-    throw new Error('Publish config requires "targets" to be an object.');
+    throw new ConfigValidationError('Publish config requires "targets" to be an object.');
   }
 
   return {

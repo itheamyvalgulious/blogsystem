@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { AdminHomeConfig, ProjectSummary, ProjectTaskRecord } from "@blog-system/content-core";
+import { getErrorMessage, type AdminHomeConfig, type ProjectSummary, type ProjectTaskRecord } from "@blog-system/content-core";
 
 import { api } from "./api";
 import {
@@ -142,7 +142,7 @@ export function HomeDashboard({ onChange, value, widgets, workbenchApi }: HomeDa
           return [
             projectId,
             {
-              error: (error as Error).message,
+              error: getErrorMessage(error),
               loading: false,
               project: null,
               tasks: []
@@ -156,7 +156,9 @@ export function HomeDashboard({ onChange, value, widgets, workbenchApi }: HomeDa
   }, [projectWidgets]);
 
   useEffect(() => {
-    void loadProjectWidgets();
+    queueMicrotask(() => {
+      void loadProjectWidgets();
+    });
   }, [loadProjectWidgets]);
 
   if (orderedWidgets.length === 0) {

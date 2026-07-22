@@ -17,6 +17,8 @@ import {
   type EditorSnippet
 } from "@blog-system/content-core";
 
+import { ConfigValidationError } from "./errors.js";
+
 const ajv = new Ajv({ allErrors: true });
 const validateSnippets = ajv.compile(snippetSchema);
 const validateKeybindings = ajv.compile<EditorKeybinding[]>(keybindingSchema);
@@ -71,7 +73,7 @@ function normalizeKeybindingList(keybindings: EditorKeybinding[]) {
 
 function collectLanguageWarnings(language: string, snippets: EditorSnippet[]) {
   return snippets
-    .filter((snippet) => !snippet.key && snippet.prefix.length === 0)
+    .filter((snippet) => !snippet.key && (snippet.prefix ?? "").length === 0)
     .map((snippet) => `${language} snippet "${snippet.name}" has neither prefix nor key.`);
 }
 
@@ -100,7 +102,7 @@ function validateSnippetConfig(label: string, snippets: unknown) {
   const message = (validateSnippets.errors ?? [])
     .map((error) => `${label}${error.instancePath} ${error.message}`)
     .join("; ");
-  throw new Error(message);
+  throw new ConfigValidationError(message);
 }
 
 function validateKeybindingArray(keybindings: unknown) {
@@ -111,7 +113,7 @@ function validateKeybindingArray(keybindings: unknown) {
   const message = (validateKeybindings.errors ?? [])
     .map((error) => `keybindings${error.instancePath} ${error.message}`)
     .join("; ");
-  throw new Error(message);
+  throw new ConfigValidationError(message);
 }
 
 function validateEditorAssociationsValue(value: unknown) {
@@ -122,7 +124,7 @@ function validateEditorAssociationsValue(value: unknown) {
   const message = (validateEditorAssociations.errors ?? [])
     .map((error) => `editorAssociations${error.instancePath} ${error.message}`)
     .join("; ");
-  throw new Error(message);
+  throw new ConfigValidationError(message);
 }
 
 export async function loadEditorConfig(editorConfigDir: string): Promise<LoadedEditorConfig> {
@@ -190,7 +192,7 @@ export function validateEditorConfigPayload(
   ];
 
   if (errors.length > 0) {
-    throw new Error(errors.join("; "));
+    throw new ConfigValidationError(errors.join("; "));
   }
 
   return {

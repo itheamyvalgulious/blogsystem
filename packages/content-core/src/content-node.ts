@@ -18,7 +18,6 @@ import {
   normalizeTags,
   normalizeTop,
   parseArticleSource,
-  serializeArticle,
   toArticleSummary,
   toPosixPath
 } from "./utils.js";
@@ -80,11 +79,6 @@ export async function loadDirectoryMetadata(contentRoot: string, relativeDirecto
   }
 
   return merged;
-}
-
-async function loadDirectoryMetadataTags(contentRoot: string, relativeDirectoryPath: string) {
-  const merged = await loadDirectoryMetadata(contentRoot, relativeDirectoryPath);
-  return normalizeTags(merged.tags);
 }
 
 async function walkFileSystemTree(
@@ -373,17 +367,25 @@ export async function createArticle(
   return readArticle(contentRoot, relativePath);
 }
 
+/**
+ * Separator-aware containment check. A bare startsWith(root) is bypassable by
+ * a sibling directory whose name extends the root's basename, e.g.
+ * root=".../content" and child=".../content-evil/secret" still startsWith
+ * ".../content". Require either an exact match (the root itself) or that the
+ * child path continues with a path separator right after the root prefix.
+ */
+export function isPathInside(root: string, child: string): boolean {
+  const absoluteRoot = path.resolve(root);
+  const resolvedChild = path.resolve(child);
+
+  return resolvedChild === absoluteRoot || resolvedChild.startsWith(absoluteRoot + path.sep);
+}
+
 export function resolveContentPath(contentRoot: string, relativePath: string): string {
   const absoluteRoot = path.resolve(contentRoot);
   const resolved = path.resolve(absoluteRoot, relativePath);
 
-  // Separator-aware containment. A bare startsWith(absoluteRoot) is bypassable
-  // by a sibling directory whose name extends the root's basename, e.g.
-  // contentRoot=".../content" and relativePath="../content-evil/secret" resolves
-  // to ".../content-evil/secret", which still startsWith ".../content". Require
-  // either an exact match (the root itself) or that the resolved path continues
-  // with a path separator right after the root prefix.
-  if (resolved !== absoluteRoot && !resolved.startsWith(absoluteRoot + path.sep)) {
+  if (!isPathInside(absoluteRoot, resolved)) {
     throw new Error("Path escapes the content root.");
   }
 

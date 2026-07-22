@@ -104,6 +104,10 @@ export interface ProjectLogWorkbenchDocument extends WorkbenchBaseDocument {
   record: ProjectLogRecord;
 }
 
+// Extension point for plugin-defined documents. Kept out of the
+// WorkbenchDocument union: its loose `kind: string` + index signature would
+// otherwise defeat discriminated-union narrowing at every `document.kind`
+// check. Nothing in the current workbench constructs generic documents.
 export interface GenericWorkbenchDocument extends WorkbenchBaseDocument {
   kind: WorkbenchDocumentKind;
   [key: string]: unknown;
@@ -117,8 +121,7 @@ export type WorkbenchDocument =
   | ProjectTaskWorkbenchDocument
   | ProjectWorkbenchDocument
   | ThemeAssetWorkbenchDocument
-  | UsageStatsWorkbenchDocument
-  | GenericWorkbenchDocument;
+  | UsageStatsWorkbenchDocument;
 
 export interface ThemeDefinition {
   id: string;
@@ -213,6 +216,12 @@ export interface HomeWidgetContributionDefinition extends WorkbenchContributionD
   label: string;
   widgetId: string;
 }
+
+export type AnyWorkbenchContributionDefinition =
+  | CreateDialogContributionDefinition
+  | HomeWidgetContributionDefinition
+  | ModuleContributionDefinition
+  | PaneContributionDefinition;
 
 export interface WorkbenchEditorComponentProps {
   api: WorkbenchApi;
@@ -368,7 +377,7 @@ export interface PluginSetupContext {
   registerMarkdownFenceRenderer: (renderer: MarkdownFenceRendererFeatureDefinition) => void;
   registerPasteHandler: (handler: PasteHandlerDefinition) => void;
   registerTheme: (theme: ThemeDefinition) => void;
-  registerWorkbenchContribution: (contribution: WorkbenchContributionDefinition) => void;
+  registerWorkbenchContribution: (contribution: AnyWorkbenchContributionDefinition) => void;
 }
 
 export interface NormalizedSnippet extends EditorSnippet {

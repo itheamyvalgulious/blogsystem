@@ -79,7 +79,7 @@ export function buildProjectTaskTree(tasks: ProjectTaskRecord[]) {
     const childIds = childTaskIds.get(task.id) ?? [];
     const children = childIds
       .map((childId) => taskById.get(childId))
-      .filter((child): child is ProjectTaskRecord => Boolean(child) && !stack.has(child.id))
+      .filter((child): child is ProjectTaskRecord => child !== undefined && !stack.has(child.id))
       .sort(compareProjectTasks)
       .map((child) => buildNode(child, new Set(stack)));
 

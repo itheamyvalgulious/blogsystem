@@ -1,4 +1,4 @@
 export {
   getThemeGroupsRoot,
   listEnabledThemeAssets
-} from "../../server/src/theme-group-service.js";
+} from "@blog-system/content-core/node";

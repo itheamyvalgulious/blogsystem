@@ -68,3 +68,39 @@ test("matchesSnippetScope treats markdown and latex aliases as equivalent", () =
   assert.equal(matchesSnippetScope({ scope: "markdown" }, "latex"), false);
   assert.equal(matchesSnippetScope({ scope: undefined }, "latex"), true);
 });
+
+test("parseSnippetConfigValue accepts string array bodies", () => {
+  const parsed = parseSnippetConfigValue([{ name: "env", body: ["\\begin", "\\end"] }]);
+
+  assert.equal(parsed.format, "array");
+  assert.equal(parsed.snippets.length, 1);
+  assert.deepEqual(parsed.snippets[0].body, ["\\begin", "\\end"]);
+});
+
+test("parseSnippetConfigValue rejects array snippets with invalid body", () => {
+  assert.throws(
+    () =>
+      parseSnippetConfigValue([
+        { name: "ok", body: "fine" },
+        { name: "bad", body: 42 }
+      ]),
+    /Snippet "bad" body must be a string or an array of strings\./
+  );
+
+  assert.throws(
+    () => parseSnippetConfigValue([{ name: "bad", body: ["ok", 1] }]),
+    /Snippet "bad" body must be a string or an array of strings\./
+  );
+});
+
+test("parseSnippetConfigValue rejects object snippets that are not objects", () => {
+  assert.throws(
+    () => parseSnippetConfigValue({ broken: null }),
+    /Snippet "broken" must be an object\./
+  );
+
+  assert.throws(
+    () => parseSnippetConfigValue({ broken: { prefix: "x" } }),
+    /Snippet "broken" body must be a string or an array of strings\./
+  );
+});

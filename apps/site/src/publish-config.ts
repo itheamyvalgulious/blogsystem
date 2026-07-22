@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { getErrorMessage } from "@blog-system/content-core";
+
 import { PublishTargetError } from "./publish-targets/types.js";
 import type { PublishConfig } from "./publish-targets/types.js";
 
@@ -29,10 +31,12 @@ export function normalizePublishConfig(raw: unknown): PublishConfig {
 
   const targets: PublishConfig["targets"] = {};
   if (isObject(raw.targets.github)) {
-    targets.github = raw.targets.github as PublishConfig["targets"]["github"];
+    // Shape only checked for objectness here; each target's validateConfig()
+    // does the real field validation before use.
+    targets.github = raw.targets.github as unknown as PublishConfig["targets"]["github"];
   }
   if (isObject(raw.targets.cloudflare)) {
-    targets.cloudflare = raw.targets.cloudflare as PublishConfig["targets"]["cloudflare"];
+    targets.cloudflare = raw.targets.cloudflare as unknown as PublishConfig["targets"]["cloudflare"];
   }
 
   return {
@@ -74,7 +78,7 @@ export async function loadPublishConfig(configRoot: string): Promise<LoadedPubli
     if (error instanceof PublishTargetError) {
       throw error;
     }
-    throw new PublishTargetError("publish", "load-config", `Failed to parse ${configPath}: ${(error as Error).message}`);
+    throw new PublishTargetError("publish", "load-config", `Failed to parse ${configPath}: ${getErrorMessage(error)}`);
   }
 }
 

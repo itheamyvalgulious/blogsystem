@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { convertTikzLengthToPercent, parseCommutative, renderCommutativeFence } from "./index.js";
+import type { CommutativeEdgeCell } from "./index.js";
 import { parseTikzcd } from "./tikzcd-parser.js";
 
 test("parseTikzcd handles a 2x2 square diagram", () => {
@@ -105,7 +106,7 @@ A & B \\\\
   assert.equal(result.ok, true);
   if (!result.ok) return;
   const vertices = result.document.cells.filter((c: any) => c.kind === "vertex");
-  const edges = result.document.cells.filter((c: any) => c.kind === "edge");
+  const edges = result.document.cells.filter((c): c is CommutativeEdgeCell => c.kind === "edge");
   assert.equal(vertices[0].labelColour, undefined);
   assert.equal(edges[0].labelColour, undefined);
   assert.equal(edges[0].options?.colour, undefined);
@@ -122,7 +123,7 @@ test("parseCommutative treats legacy black colour payloads as theme-inheriting d
     ])
   );
   const vertices = parsed.cells.filter((c: any) => c.kind === "vertex");
-  const edges = parsed.cells.filter((c: any) => c.kind === "edge");
+  const edges = parsed.cells.filter((c): c is CommutativeEdgeCell => c.kind === "edge");
   assert.equal(vertices[0].labelColour, undefined);
   assert.equal(edges[0].labelColour, undefined);
   assert.equal(edges[0].options?.colour, undefined);

@@ -6,6 +6,7 @@ import {
 import type {
   ConfigDocumentKind,
   EditorContributionDefinition,
+  WorkbenchBaseDocument,
   WorkbenchDocument
 } from "./types";
 
@@ -69,7 +70,7 @@ export function getWorkbenchDocumentPath(document: WorkbenchDocument) {
     return "usage-stats";
   }
 
-  return document.title;
+  return (document as WorkbenchBaseDocument).title;
 }
 
 export function matchesEditorAssociationPattern(pattern: string, documentPath: string) {

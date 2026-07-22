@@ -95,7 +95,7 @@ app.use((_req, res) => {
       return;
     }
 
-    res.status(error.code === "ENOENT" ? 404 : 500).type("text/plain").send(error.message);
+    res.status((error as NodeJS.ErrnoException).code === "ENOENT" ? 404 : 500).type("text/plain").send(error.message);
   });
 });
 

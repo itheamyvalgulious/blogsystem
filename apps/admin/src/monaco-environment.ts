@@ -4,14 +4,8 @@ import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 
-declare global {
-  interface Window {
-    MonacoEnvironment?: {
-      getWorker?: (_moduleId: string, label: string) => Worker;
-    };
-  }
-}
-
+// `Window.MonacoEnvironment` is already declared globally by
+// monaco-editor's own typings (`Environment`), so it is not redeclared here.
 window.MonacoEnvironment = {
   getWorker(_moduleId, label) {
     if (label === "json") {

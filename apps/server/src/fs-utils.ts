@@ -1,5 +1,7 @@
 import { promises as fs } from "node:fs";
 
+import { ApiError } from "./errors.js";
+
 /**
  * True iff the target exists. ENOENT resolves to false; any other fs error
  * (permissions, I/O) re-throws so a broken path is not silently treated as
@@ -24,7 +26,7 @@ export async function assertPathExists(absolutePath: string): Promise<void> {
     await fs.access(absolutePath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error("Target path does not exist.");
+      throw new ApiError(404, "Target path does not exist.");
     }
 
     throw error;
@@ -35,7 +37,7 @@ export async function assertPathExists(absolutePath: string): Promise<void> {
 export async function assertTargetAvailable(absolutePath: string): Promise<void> {
   try {
     await fs.access(absolutePath);
-    throw new Error("Target path already exists.");
+    throw new ApiError(409, "Target path already exists.");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return;

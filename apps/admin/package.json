@@ -4,14 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node ../../scripts/sync-quiver.mjs",
     "dev": "vite",
+    "prebuild": "node ../../scripts/sync-quiver.mjs",
     "build": "vite build",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@blog-system/commutative": "*",
     "@blog-system/content-core": "*",
     "@monaco-editor/react": "^4.7.0",
+    "github-slugger": "^2.0.0",
     "katex": "^0.16.22",
     "monaco-editor": "^0.52.2",
     "react": "^19.1.1",

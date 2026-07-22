@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { url_parameters } from "../public/quiver/ds.mjs";
+import { url_parameters } from "@blog-system/commutative";
 
 type WindowLike = {
   location: {

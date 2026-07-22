@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { parseArticleSource } from "@blog-system/content-core";
-import { resolveContentPath } from "@blog-system/content-core/node";
+import { getErrorMessage, parseArticleSource } from "@blog-system/content-core";
+import { hashText, resolveContentPath } from "@blog-system/content-core/node";
 
 export type MarkdownSearchScope = "body" | "wholeFile";
 
@@ -99,17 +99,6 @@ function normalizeLineEndings(value: string) {
   return value.replace(/\r\n/g, "\n");
 }
 
-function hashText(value: string) {
-  let hash = 2166136261;
-
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-
-  return (hash >>> 0).toString(36);
-}
-
 function buildMatchKey(match: Pick<MarkdownSearchMatch, "endOffset" | "matchIndex" | "matchedText" | "path" | "startOffset">) {
   return [
     encodeURIComponent(match.path),
@@ -174,7 +163,7 @@ function createSearchContext(contentRoot: string, input: MarkdownSearchRequest):
       regex: new RegExp(normalized.pattern, normalized.normalizedFlags)
     };
   } catch (error) {
-    throw new MarkdownSearchError(400, "invalid_search_pattern", (error as Error).message);
+    throw new MarkdownSearchError(400, "invalid_search_pattern", getErrorMessage(error));
   }
 }
 
@@ -378,7 +367,7 @@ function resolveBodySearchSource(relativePath: string, rawContent: string): Body
   try {
     parseArticleSource(relativePath, normalizedRawContent);
   } catch (error) {
-    throw new MarkdownSearchError(409, "invalid_markdown_frontmatter", (error as Error).message);
+    throw new MarkdownSearchError(409, "invalid_markdown_frontmatter", getErrorMessage(error));
   }
 
   if (!normalizedRawContent.startsWith("---\n")) {
@@ -632,7 +621,7 @@ export async function replaceNextMarkdownSearch(
     throw new MarkdownSearchError(
       409,
       "search_replace_validation_failed",
-      `Replacing the selected match would make ${selectedFile.path} invalid: ${(error as Error).message}`
+      `Replacing the selected match would make ${selectedFile.path} invalid: ${getErrorMessage(error)}`
     );
   }
 
@@ -674,7 +663,7 @@ export async function replaceAllMarkdownSearch(
     } catch (error) {
       skipped.push({
         path: file.path,
-        reason: `Replacement skipped: ${(error as Error).message}`
+        reason: `Replacement skipped: ${getErrorMessage(error)}`
       });
       continue;
     }

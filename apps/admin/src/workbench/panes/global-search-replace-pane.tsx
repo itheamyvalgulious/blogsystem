@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+
+import { getErrorMessage } from "@blog-system/content-core";
 
 import type {
   GlobalMarkdownSearchFileResult,
@@ -60,16 +62,11 @@ export function GlobalSearchReplacePane({
     [flatMatches, results, selectedMatchKey]
   );
 
-  useEffect(() => {
-    if (!selectedMatch) {
-      setSelectedMatchKey(null);
-      return;
-    }
-
-    if (selectedMatch.key !== selectedMatchKey) {
-      setSelectedMatchKey(selectedMatch.key);
-    }
-  }, [selectedMatch, selectedMatchKey]);
+  if (!selectedMatch && selectedMatchKey !== null) {
+    setSelectedMatchKey(null);
+  } else if (selectedMatch && selectedMatch.key !== selectedMatchKey) {
+    setSelectedMatchKey(selectedMatch.key);
+  }
 
   const applyResponse = useMemo(
     () => (response: Awaited<ReturnType<typeof workbenchApi.previewGlobalMarkdownSearch>>) => {
@@ -94,7 +91,7 @@ export function GlobalSearchReplacePane({
       applyResponse(response);
       workbenchApi.showError(null);
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
     } finally {
       workbenchApi.setBusy(null);
       setBusy(false);
@@ -119,7 +116,7 @@ export function GlobalSearchReplacePane({
       applyResponse(response);
       workbenchApi.showError(null);
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
     } finally {
       workbenchApi.setBusy(null);
       setBusy(false);
@@ -143,7 +140,7 @@ export function GlobalSearchReplacePane({
       applyResponse(response);
       workbenchApi.showError(null);
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
     } finally {
       workbenchApi.setBusy(null);
       setBusy(false);

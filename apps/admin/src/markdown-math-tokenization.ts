@@ -169,7 +169,7 @@ export function scanMarkdownMathLine(
   line: string,
   previousState: MarkdownMathContextState
 ): MarkdownMathScanResult {
-  let inFenceMarker = previousState.inFenceMarker;
+  const inFenceMarker = previousState.inFenceMarker;
   const mathRanges: MarkdownMathRange[] = [];
   const fenceMarker = getFenceMarker(line);
 
@@ -402,7 +402,7 @@ export function tokenizeLatexMathFragment(
       continue;
     }
 
-    const bracketMatch = /^[\[\]{}()]/.exec(remaining);
+    const bracketMatch = /^[[\]{}()]/.exec(remaining);
     if (bracketMatch) {
       pushToken(tokens, startIndex + index, "delimiter");
       index += bracketMatch[0].length;

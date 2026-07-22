@@ -1,7 +1,10 @@
-import { Arc, Bezier, Curve, CurvePoint, EPSILON, RoundedRectangle } from "../../../apps/admin/public/quiver/curve.mjs";
-import { Dimensions, Enum, Path, Point, clamp, deg_to_rad } from "../../../apps/admin/public/quiver/ds.mjs";
+import { Arc, Bezier, Curve, CurvePoint, EPSILON, RoundedRectangle } from "../vendor/quiver/curve.mjs";
+import { Dimensions, Enum, Path, Point, clamp, deg_to_rad, url_parameters as quiverUrlParameters } from "../vendor/quiver/ds.mjs";
 
 export { Arc, Bezier, Curve, CurvePoint, Dimensions, Enum, EPSILON, Path, Point, RoundedRectangle, clamp, deg_to_rad };
+
+/** quiver `ds.mjs` 的 url_parameters 转发导出（显式签名保证 d.ts 稳定）。 */
+export const url_parameters: () => URLSearchParams = quiverUrlParameters;
 
 export const QUIVER_CONSTANTS = {
   ADJUNCTION_LINE_LENGTH: 16,
@@ -51,17 +54,17 @@ export const QUIVER_CONSTANTS = {
 } as const;
 
 export class QuiverArrowStyle {
-  colour = "black";
+  colour: string | undefined = "black";
   curve = 0;
   dash_style = QUIVER_CONSTANTS.ARROW_DASH_STYLE.SOLID;
   body_style = QUIVER_CONSTANTS.ARROW_BODY_STYLE.LINE;
-  heads = QUIVER_CONSTANTS.ARROW_HEAD_STYLE.NORMAL;
+  heads: readonly string[] = QUIVER_CONSTANTS.ARROW_HEAD_STYLE.NORMAL;
   label_position = 0.5;
   level = 1;
   shape = QUIVER_CONSTANTS.ARROW_SHAPE.BEZIER;
   shift = 0;
   shorten = { head: 0, tail: 0 };
-  tails = QUIVER_CONSTANTS.ARROW_HEAD_STYLE.NONE;
+  tails: readonly string[] = QUIVER_CONSTANTS.ARROW_HEAD_STYLE.NONE;
   angle = 0;
 }
 
@@ -71,6 +74,10 @@ export class QuiverLabel {
 }
 
 export class QuiverShape {
+  origin!: Point;
+  size!: Dimensions;
+  radius!: number;
+
   point() {
     return new QuiverShape.Endpoint(this.origin);
   }
@@ -80,7 +87,7 @@ export class QuiverShape {
 }
 
 class QuiverShapeRoundedRect extends QuiverShape {
-  constructor(origin, size, radius) {
+  constructor(origin: Point, size: Dimensions, radius: number) {
     super();
     this.origin = origin;
     this.size = size;
@@ -89,7 +96,7 @@ class QuiverShapeRoundedRect extends QuiverShape {
 }
 
 class QuiverShapeEndpoint extends QuiverShape {
-  constructor(origin) {
+  constructor(origin: Point) {
     super();
     this.origin = origin;
     this.size = Dimensions.zero();
@@ -100,12 +107,43 @@ class QuiverShapeEndpoint extends QuiverShape {
 QuiverShape.RoundedRect = QuiverShapeRoundedRect;
 QuiverShape.Endpoint = QuiverShapeEndpoint;
 
-function includesAny(array, ...values) {
+function includesAny(array: readonly string[], ...values: string[]) {
   return !values.every((element) => !array.includes(element));
 }
 
+interface QuiverEdgeConstants {
+  curve: Arc | Bezier;
+  dash_padding: { end: number; start: number };
+  end: CurvePoint | null;
+  offset: Point;
+  shorten: { end: number; start: number };
+  start: CurvePoint | null;
+  t_after_length: (length: number) => number;
+}
+
+interface QuiverEdgePathConstants extends QuiverEdgeConstants {
+  total_width_of_heads: number;
+  total_width_of_tails: number;
+}
+
+interface QuiverHeadConstants extends QuiverEdgeConstants {
+  head_height: number;
+  head_width: number;
+  stroke_width: number;
+}
+
 export class QuiverArrowGeometry {
-  constructor(source, target, style = new QuiverArrowStyle(), label = null) {
+  source: QuiverShape;
+  target: QuiverShape;
+  style: QuiverArrowStyle;
+  label: QuiverLabel | null;
+
+  constructor(
+    source: QuiverShape,
+    target: QuiverShape,
+    style: QuiverArrowStyle = new QuiverArrowStyle(),
+    label: QuiverLabel | null = null
+  ) {
     this.source = source;
     this.target = target;
     this.style = style;
@@ -154,7 +192,7 @@ export class QuiverArrowGeometry {
 
   find_endpoints() {
     const origin = this.origin();
-    const find_endpoint = (endpoint_shape, endpoint_origin, prefer_min) => {
+    const find_endpoint = (endpoint_shape: QuiverShape, endpoint_origin: Point, prefer_min: boolean) => {
       const curve = this.curve();
 
       if (endpoint_shape instanceof QuiverShape.Endpoint || endpoint_shape.size.is_zero()) {
@@ -192,7 +230,7 @@ export class QuiverArrowGeometry {
     return [find_endpoint(this.source, origin.source, true), find_endpoint(this.target, origin.target, false)];
   }
 
-  arc_for_chord(origin, chord, loop_radius, angle) {
+  arc_for_chord(origin: Point, chord: number, loop_radius: number, angle: number) {
     const outer_dis = QUIVER_CONSTANTS.ARC.OUTER_DIS;
     const inner_dis = QUIVER_CONSTANTS.ARC.INNER_DIS;
     const semicircle_radius = inner_dis / 2;
@@ -207,7 +245,7 @@ export class QuiverArrowGeometry {
     return new Arc(origin, chord, chord <= inner_dis, radius, angle);
   }
 
-  edge_path(constants) {
+  edge_path(constants: QuiverEdgePathConstants) {
     const {
       curve,
       dash_padding,
@@ -219,8 +257,11 @@ export class QuiverArrowGeometry {
       total_width_of_heads,
       total_width_of_tails
     } = constants;
-    let arclen_to_start = curve.arc_length(start.t) + (this.style.shorten.tail + shorten.start) - dash_padding.start;
-    let arclen_to_end = curve.arc_length(end.t) - (this.style.shorten.head + shorten.end) + dash_padding.end;
+    // Upstream quiver permits null start/end here; in practice the renderer
+    // always passes real endpoints, and a null would throw on `.t` below just
+    // as it does in the original JS.
+    let arclen_to_start = curve.arc_length(start!.t) + (this.style.shorten.tail + shorten.start) - dash_padding.start;
+    let arclen_to_end = curve.arc_length(end!.t) - (this.style.shorten.head + shorten.end) + dash_padding.end;
     let arclen = curve.arc_length(1);
     const halfWavelength = QUIVER_CONSTANTS.SQUIGGLY_TRIANGLE_HEIGHT * 2;
     const path = new Path();
@@ -299,6 +340,7 @@ export class QuiverArrowGeometry {
           if (this.style.level > 1) {
             break;
           }
+        // fallthrough: squiggly at level 1 shares the dash computation with line-like bodies
         case QUIVER_CONSTANTS.ARROW_BODY_STYLE.LINE:
         case QUIVER_CONSTANTS.ARROW_BODY_STYLE.PROARROW:
         case QUIVER_CONSTANTS.ARROW_BODY_STYLE.DOUBLE_PROARROW:
@@ -368,8 +410,8 @@ export class QuiverArrowGeometry {
     };
   }
 
-  redraw_heads(constants, heads, endpoint, is_start) {
-    const { curve, dash_padding, head_height, head_width, offset, shorten, stroke_width, t_after_length } = constants;
+  redraw_heads(constants: QuiverHeadConstants, heads: readonly string[], endpoint: CurvePoint, is_start: boolean) {
+    const { curve, head_height, head_width, offset, shorten, stroke_width, t_after_length } = constants;
     if (heads.length === 0) {
       return { path: new Path(), total_width: 0 };
     }
@@ -386,7 +428,7 @@ export class QuiverArrowGeometry {
 
     if (includesAny(heads, "harpoon-top", "harpoon-bottom")) {
       const edge_bottom = stroke_width + QUIVER_CONSTANTS.LINE_SPACING;
-      const side_sign = heads.find((head) => head.startsWith("harpoon")).endsWith("top") ? 1 : -1;
+      const side_sign = heads.find((head) => head.startsWith("harpoon"))!.endsWith("top") ? 1 : -1;
       const t = t_after_length(arclen_to_endpoint);
       const angle = curve.tangent(t);
       const point = curve
@@ -411,7 +453,7 @@ export class QuiverArrowGeometry {
       const t = t_after_length(arclen_to_endpoint);
       const base_point = curve.point(t);
       const angle = curve.tangent(t);
-      const side_sign = heads.find((head) => head.startsWith("hook")).endsWith("top") ? -1 : 1;
+      const side_sign = heads.find((head) => head.startsWith("hook"))!.endsWith("top") ? -1 : 1;
       const MASK_ADJUSTMENT = 0.5;
       for (let index = 0; index < this.style.level; index += 1) {
         const point = base_point
@@ -435,12 +477,12 @@ export class QuiverArrowGeometry {
       }
       total_width = 0;
     } else {
-      const arclens_to_head = [];
+      const arclens_to_head: number[] = [];
       let prev_margin = 0;
       for (let index = 0, heads_arclen = 0; index < heads.length; index += 1) {
-        let margin_left;
-        let margin_right;
-        let margin_begin;
+        let margin_left: number;
+        let margin_right: number;
+        let margin_begin: number;
         switch (heads[index]) {
           case "epi":
           case "corner":
@@ -480,6 +522,7 @@ export class QuiverArrowGeometry {
         switch (head_style) {
           case "mono":
             angle += Math.PI;
+          // fallthrough: mono arrowheads reuse the epi outline rotated 180°
           case "epi":
             for (const [side_sign, side_ind] of [
               [-1, end_ind],
@@ -532,7 +575,25 @@ export class QuiverArrowGeometry {
   }
 }
 
-export function createQuiverArrowStyleFromOptions(options) {
+export interface QuiverArrowStyleOptions {
+  angle?: number;
+  colour?: string;
+  curve?: number;
+  label_position?: number;
+  level?: number;
+  offset?: number;
+  radius?: number;
+  shape?: string;
+  shorten?: { source?: number; target?: number };
+  style?: {
+    body?: { name?: string };
+    head?: { name?: string; side?: string };
+    name?: string;
+    tail?: { name?: string; side?: string };
+  };
+}
+
+export function createQuiverArrowStyleFromOptions(options: QuiverArrowStyleOptions) {
   const style = new QuiverArrowStyle();
   style.label_position = (options.label_position ?? 50) / 100;
   style.shift = (options.offset ?? 0) * QUIVER_CONSTANTS.EDGE_OFFSET_DISTANCE;
@@ -542,7 +603,10 @@ export function createQuiverArrowStyleFromOptions(options) {
   switch (arrowStyleName) {
     case "arrow": {
       style.level = options.level ?? 1;
-      style.shorten = options.shorten ?? { source: 0, target: 0 };
+      // Upstream quiver keeps `shorten` as { source, target } percentages on
+      // the style; the renderer converts them to absolute { head, tail }
+      // lengths before `edge_path`/`redraw_heads` read them.
+      style.shorten = (options.shorten ?? { source: 0, target: 0 }) as { head: number; tail: number };
       switch (options.shape) {
         case "arc": {
           style.shape = QUIVER_CONSTANTS.ARROW_SHAPE.ARC;
@@ -650,7 +714,7 @@ export function createQuiverArrowStyleFromOptions(options) {
   return style;
 }
 
-export function updateQuiverLabelAlignment(label, alignment) {
+export function updateQuiverLabelAlignment(label: QuiverLabel, alignment: 0 | 1 | 2 | 3) {
   label.alignment = {
     0: QUIVER_CONSTANTS.LABEL_ALIGNMENT.LEFT,
     1: QUIVER_CONSTANTS.LABEL_ALIGNMENT.CENTRE,

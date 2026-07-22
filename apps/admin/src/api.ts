@@ -1,6 +1,7 @@
 import type {
   AdminHomeConfig,
   ArticleRecord,
+  ArticleSummary,
   ContentTreeNode,
   EditorKeybinding,
   EditorSnippet,
@@ -80,20 +81,7 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export interface TreePayload {
-  articles: Array<{
-    path: string;
-    directory: string;
-    fileName: string;
-    title: string;
-    slug: string;
-    status: "draft" | "working" | "published";
-    date?: string;
-    summary?: string;
-    tags: string[];
-    excerpt: string;
-    urlPath: string;
-    isProtected: boolean;
-  }>;
+  articles: ArticleSummary[];
   tree: ContentTreeNode[];
   fileTree: FileSystemNode[];
   tags: TagInfo[];
@@ -205,7 +193,9 @@ export interface ThemeAssetPayload {
   colorMode?: "light" | "dark";
   fileName: string;
   groupId: string;
-  language: "css" | "javascript";
+  // Server payloads are only css/javascript; "json" appears in the
+  // client-built payload for a group's theme.json document.
+  language: "css" | "javascript" | "json";
   raw: string;
   type: "css" | "js";
 }

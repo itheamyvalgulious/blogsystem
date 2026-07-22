@@ -21,20 +21,11 @@ import type {
   MarkdownFenceRendererDefinition,
   MarkdownRenderError
 } from "./types.js";
+import { escapeHtmlAttribute } from "./utils.js";
 
 interface HtmlTagBoundary {
   kind: "opening" | "closing";
   tagName: string;
-}
-
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\r/g, "&#13;")
-    .replace(/\n/g, "&#10;");
 }
 
 function hasUnclosedMathDelimiter(markdown: string) {
@@ -292,8 +283,6 @@ async function renderMarkdownInternal(
   const fenceRendererMap = new Map(
     (options.fenceRenderers ?? []).map((renderer) => [renderer.language, renderer] as const)
   );
-  const processor = unified()
-    .use(() => undefined);
   const remarkProcessor = createRemarkParser(preparedMarkdown);
   const processorWithRemarkPlugins = remarkProcessor
     .use(() => (tree: any) => {

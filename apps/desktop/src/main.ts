@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, dialog } from "electron";
+import { randomBytes } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -10,7 +11,6 @@ const DESKTOP_SHORTCUT_CHANNEL = "blog-system:workbench-shortcut";
 const DEV_START_URL = process.env.BLOG_SYSTEM_ELECTRON_START_URL?.trim();
 const IS_DEV = Boolean(DEV_START_URL);
 
-let mainWindow: BrowserWindow | null = null;
 let adminHost: RunningAdminHost | null = null;
 let embeddedServer: { close(): Promise<void> } | null = null;
 let runtimeStartUrl: string | null = null;
@@ -78,15 +78,40 @@ function forwardWorkbenchShortcut(window: BrowserWindow, input: Parameters<NonNu
   });
 }
 
-async function startEmbeddedServer(serverPort: number) {
+interface DesktopCredentials {
+  adminPassword: string;
+  sessionSecret: string;
+}
+
+function ensureDesktopCredentials(): DesktopCredentials {
+  // The embedded server is imported into this process, so it reads the same
+  // environment. `??=` keeps credentials the user exported before launching,
+  // otherwise we generate per-launch random ones; the preload script exposes
+  // them to the renderer for login prefill via window.desktopAuth.
+  process.env.ADMIN_PASSWORD ??= randomBytes(12).toString("base64url");
+  process.env.SESSION_SECRET ??= randomBytes(32).toString("base64url");
+
+  return {
+    adminPassword: process.env.ADMIN_PASSWORD,
+    sessionSecret: process.env.SESSION_SECRET
+  };
+}
+
+async function startEmbeddedServer(serverPort: number, credentials: DesktopCredentials) {
   writeDebugLog(`starting embedded server on ${serverPort}`);
   const serverEntry = path.join(getProjectRoot(), "apps", "server", "dist", "index.cjs");
   const serverModule = (await import(pathToFileURL(serverEntry).href)) as {
-    startServer(customSettings?: { port?: number }): Promise<{ close(): Promise<void> }>;
+    startServer(customSettings?: {
+      adminPassword?: string;
+      port?: number;
+      sessionSecret?: string;
+    }): Promise<{ close(): Promise<void> }>;
   };
 
   return serverModule.startServer({
-    port: serverPort
+    port: serverPort,
+    adminPassword: credentials.adminPassword,
+    sessionSecret: credentials.sessionSecret
   });
 }
 
@@ -117,7 +142,8 @@ async function ensureDesktopRuntime() {
 
     try {
       if (runtimeConfig.mode === "local") {
-        nextEmbeddedServer = await startEmbeddedServer(runtimeConfig.serverPort);
+        const credentials = ensureDesktopCredentials();
+        nextEmbeddedServer = await startEmbeddedServer(runtimeConfig.serverPort, credentials);
         embeddedServer = nextEmbeddedServer;
       }
 
@@ -209,11 +235,11 @@ process.on("unhandledRejection", (error) => {
 app.whenReady()
   .then(async () => {
     Menu.setApplicationMenu(null);
-    mainWindow = await createMainWindow();
+    await createMainWindow();
 
     app.on("activate", async () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = await createMainWindow();
+        await createMainWindow();
       }
     });
   })

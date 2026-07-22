@@ -17,13 +17,11 @@ function createTask(overrides: Partial<ProjectTaskRecord> & Pick<ProjectTaskReco
     createdAt: "2026-04-28T00:00:00.000Z",
     dueDate: "",
     excerpt: "",
-    id: overrides.id,
     order: 1,
     parentTaskId: "",
     rawContent: "",
     startDate: "2026-04-28",
     status: "todo",
-    title: overrides.title,
     updatedAt: "2026-04-28T00:00:00.000Z",
     ...overrides
   };

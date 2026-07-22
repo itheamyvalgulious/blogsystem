@@ -19,6 +19,9 @@ import {
   type ProjectTaskRecord
 } from "@blog-system/content-core";
 
+import { ApiError } from "./errors.js";
+import { isPathInside } from "./path-guard.js";
+
 interface ProjectPaths {
   directory: string;
   logsDirectory: string;
@@ -51,8 +54,8 @@ function resolveProjectsPath(projectsRoot: string, ...segments: string[]) {
   const absoluteRoot = path.resolve(projectsRoot);
   const resolved = path.resolve(absoluteRoot, ...segments);
 
-  if (!resolved.startsWith(absoluteRoot)) {
-    throw new Error("Path escapes the projects root.");
+  if (!isPathInside(absoluteRoot, resolved)) {
+    throw new ApiError(400, "Path escapes the projects root.");
   }
 
   return resolved;
@@ -341,7 +344,7 @@ export async function createProject(
   await ensureProjectsRoot(projectsRoot);
   const title = input.title.trim();
   if (!title) {
-    throw new Error("Project title is required.");
+    throw new ApiError(400, "Project title is required.");
   }
 
   const projectId = await createUniqueProjectId(projectsRoot, title);
@@ -421,7 +424,7 @@ export async function createProjectTask(projectsRoot: string, projectId: string,
   const paths = await ensureProjectStructure(projectsRoot, projectId);
   const trimmedTitle = title.trim();
   if (!trimmedTitle) {
-    throw new Error("Task title is required.");
+    throw new ApiError(400, "Task title is required.");
   }
 
   const existingTasks = await readProjectTasks(projectsRoot, projectId);

@@ -2,6 +2,8 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { getErrorMessage } from "@blog-system/content-core";
+
 import { buildSite, getSiteSettings, type SiteBuildSettings } from "./generator.js";
 import { loadPublishConfig } from "./publish-config.js";
 import { getTarget } from "./publish-targets/index.js";
@@ -61,7 +63,7 @@ export async function publishSite(
   try {
     target = getTarget(targetId);
   } catch (error) {
-    throw new PublishTargetError("publish", "resolve-target", (error as Error).message);
+    throw new PublishTargetError("publish", "resolve-target", getErrorMessage(error));
   }
 
   const rawTargetConfig = config.targets[targetId as keyof typeof config.targets];
@@ -81,7 +83,7 @@ export async function publishSite(
       distDir: publishDistDir
     });
   } catch (error) {
-    throw new PublishTargetError(target.id, "build-site", (error as Error).message, {
+    throw new PublishTargetError(target.id, "build-site", getErrorMessage(error), {
       cause: error
     });
   }

@@ -6,6 +6,7 @@ import {
   parseCommutative,
   stripTikzcdWrappers
 } from "@blog-system/commutative";
+import { getErrorMessage } from "@blog-system/content-core";
 import { chromium, type Page } from "playwright";
 
 const FENCE_RE = /^```commutative([^\n]*)\n([\s\S]*?)^```$/gm;
@@ -95,7 +96,7 @@ async function exportTikzCd(page: Page, quiverUrl: string, encodedBase64: string
     `
   ) as (arg: [string, number]) => Promise<string>;
 
-  return page.evaluate(evaluator, [`${quiverUrl}#q=${encodeURIComponent(encodedBase64)}`, 15000]);
+  return page.evaluate(evaluator, [`${quiverUrl}#q=${encodeURIComponent(encodedBase64)}`, 15000] as [string, number]);
 }
 
 async function collectMarkdownFiles(contentDir: string) {
@@ -176,7 +177,7 @@ async function migrateDirectory(
           result.errors.push({
             file: path.relative(contentDir, filePath),
             blockIndex,
-            error: `quiver export failed: ${(error as Error).message}`
+            error: `quiver export failed: ${getErrorMessage(error)}`
           });
           blockIndex++;
           continue;

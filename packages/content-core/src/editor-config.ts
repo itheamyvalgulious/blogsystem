@@ -128,27 +128,85 @@ export function parseJsoncConfig(raw: string, label: string): unknown {
   throw new Error(message);
 }
 
+function isValidSnippetBody(body: unknown): body is string | string[] {
+  return (
+    typeof body === "string" ||
+    (Array.isArray(body) && body.every((line) => typeof line === "string"))
+  );
+}
+
+function collectInvalidSnippetError(snippet: unknown, label: string): string | null {
+  if (!snippet || typeof snippet !== "object" || Array.isArray(snippet)) {
+    return `${label} must be an object.`;
+  }
+
+  if (!isValidSnippetBody((snippet as { body?: unknown }).body)) {
+    return `${label} body must be a string or an array of strings.`;
+  }
+
+  return null;
+}
+
 export function parseSnippetConfigValue(value: unknown): {
   format: SnippetConfigFormat;
   snippets: EditorSnippet[];
 } {
+  const errors: string[] = [];
+
   if (Array.isArray(value)) {
+    const snippets: EditorSnippet[] = [];
+
+    value.forEach((snippet, index) => {
+      const name =
+        snippet && typeof snippet === "object" && typeof (snippet as { name?: unknown }).name === "string"
+          ? (snippet as { name: string }).name
+          : "";
+      const label = name ? `Snippet "${name}"` : `Snippet at index ${index}`;
+      const error = collectInvalidSnippetError(snippet, label);
+
+      if (error) {
+        errors.push(error);
+        return;
+      }
+
+      snippets.push(snippet as EditorSnippet);
+    });
+
+    if (errors.length > 0) {
+      throw new Error(errors.join("; "));
+    }
+
     return {
       format: "array",
-      snippets: value.map((snippet) => snippet as EditorSnippet)
+      snippets
     };
   }
 
   if (value && typeof value === "object") {
+    const snippets: EditorSnippet[] = [];
+
+    for (const [name, snippet] of Object.entries(value as Record<string, unknown>)) {
+      const error = collectInvalidSnippetError(snippet, `Snippet "${name}"`);
+
+      if (error) {
+        errors.push(error);
+        continue;
+      }
+
+      const { name: _ignoredName, ...rest } = (snippet ?? {}) as Partial<EditorSnippet>;
+      snippets.push({
+        ...rest,
+        name
+      } as EditorSnippet);
+    }
+
+    if (errors.length > 0) {
+      throw new Error(errors.join("; "));
+    }
+
     return {
       format: "object",
-      snippets: Object.entries(value as Record<string, Omit<EditorSnippet, "name">>).map(([name, snippet]) => {
-        const { name: _ignoredName, ...rest } = (snippet ?? {}) as Partial<EditorSnippet>;
-        return {
-          ...rest,
-          name
-        } as EditorSnippet;
-      })
+      snippets
     };
   }
 

@@ -368,3 +368,7 @@ export function getActiveKeybinding(
 
   return null;
 }
+
+export function isWorkbenchKeybindingCommand(command: string) {
+  return command === "workbench.action.showCommands" || command.startsWith("workbench.") || command.startsWith("blog.");
+}

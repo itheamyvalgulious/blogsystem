@@ -163,6 +163,60 @@ test("buildSite encrypts protected articles and excludes them from public search
   await fs.rm(fixture.root, { recursive: true, force: true });
 });
 
+test("buildSite generates a search script that cannot inject markup from article fields", async () => {
+  const fixture = await createWorkspaceFixture();
+  const distDir = path.join(fixture.root, "dist");
+  const xssTitle = `<img src=x onerror=alert(1)> "quoted" & 'apos'`;
+
+  await fs.writeFile(
+    path.join(fixture.contentRoot, "xss.md"),
+    `---
+title: ${xssTitle}
+tags:
+  - web
+status: published
+---
+
+# XSS attempt
+
+Body with <script>alert(2)</script> markup.`,
+    "utf8"
+  );
+
+  await buildSite({
+    assetsRoot: fixture.assetsRoot,
+    configRoot: fixture.configRoot,
+    contentRoot: fixture.contentRoot,
+    distDir,
+    projectRoot: fixture.root,
+    workspaceRoot: fixture.workspaceRoot,
+    basePath: ""
+  });
+
+  const searchScript = await fs.readFile(path.join(distDir, "assets", "search.js"), "utf8");
+  const searchIndex = JSON.parse(await fs.readFile(path.join(distDir, "assets", "search-index.json"), "utf8")) as Array<{
+    excerpt: string;
+    path: string;
+    tags: string[];
+    title: string;
+    urlPath: string;
+  }>;
+
+  // The malicious title is data inside search-index.json...
+  const xssEntry = searchIndex.find((entry) => entry.path === "xss.md");
+  assert.ok(xssEntry);
+  assert.equal(xssEntry.title, xssTitle);
+
+  // ...and the runtime script must render it via DOM APIs (textContent),
+  // never by concatenating raw fields into innerHTML.
+  assert.match(searchScript, /document\.createElement/);
+  assert.match(searchScript, /\.textContent = item\.(title|path|excerpt)/);
+  assert.doesNotMatch(searchScript, /innerHTML/);
+  assert.doesNotMatch(searchScript, /' \+ item\.|item\.\w+ \+ '/);
+
+  await fs.rm(fixture.root, { recursive: true, force: true });
+});
+
 test("buildSite rejects protected articles when protected-content is omitted from enabledPlugins", async () => {
   const fixture = await createWorkspaceFixture();
   const distDir = path.join(fixture.root, "dist");

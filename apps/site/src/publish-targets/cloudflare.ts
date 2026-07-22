@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { blake3 } from "@noble/hashes/blake3";
 import { bytesToHex } from "@noble/hashes/utils";
+import { getErrorMessage } from "@blog-system/content-core";
 
 import type {
   CloudflareTargetConfig,
@@ -101,19 +101,21 @@ async function cfFetch<T>(url: string, init: RequestInit, phase: string): Promis
     throw new PublishTargetError(
       TARGET_ID,
       phase,
-      `Network error talking to Cloudflare: ${(error as Error).message}`,
+      `Network error talking to Cloudflare: ${getErrorMessage(error)}`,
       { cause: error }
     );
   }
 
   let bodyText = "";
-  let body: CfApiResponse<T> | null = null;
+  let parsed: unknown = null;
   try {
     bodyText = await response.text();
-    body = bodyText ? (JSON.parse(bodyText) as CfApiResponse<T>) : null;
+    parsed = bodyText ? JSON.parse(bodyText) : null;
   } catch {
-    body = null;
+    parsed = null;
   }
+
+  const body = isObject(parsed) ? (parsed as unknown as CfApiResponse<T>) : null;
 
   if (!response.ok || !body || body.success === false) {
     const message = body?.errors?.[0]?.message ?? (bodyText.slice(0, 200) || response.statusText);
@@ -121,6 +123,18 @@ async function cfFetch<T>(url: string, init: RequestInit, phase: string): Promis
       status: response.status,
       detail: bodyText.slice(0, 1000)
     });
+  }
+
+  if (!("result" in body)) {
+    throw new PublishTargetError(
+      TARGET_ID,
+      phase,
+      `Malformed Cloudflare API response during ${phase}: missing "result" field.`,
+      {
+        status: response.status,
+        detail: bodyText.slice(0, 1000)
+      }
+    );
   }
 
   return body.result as T;

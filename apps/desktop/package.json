@@ -9,9 +9,10 @@
     "package:win": "node ../../scripts/package-electron.mjs --mode=both",
     "package:win:local": "node ../../scripts/package-electron.mjs --mode=local",
     "package:win:remote": "node ../../scripts/package-electron.mjs --mode=remote",
-    "start": "node ../../scripts/run-electron.mjs apps/desktop"
+    "start": "node ../../scripts/run-electron.mjs apps/desktop",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
-    "electron": "^37.2.6"
+    "electron": "^42.4.0"
   }
 }

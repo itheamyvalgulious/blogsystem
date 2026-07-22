@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { ProjectLogRecord } from "@blog-system/content-core";
+import { getErrorMessage, type ProjectLogRecord } from "@blog-system/content-core";
 
 import { api } from "../../api";
 
@@ -46,7 +46,7 @@ export function ProjectLogPane({
       workbenchApi.showError(null);
       return payload.logs;
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
       return [];
     } finally {
       setLoadingLogs(false);
@@ -54,7 +54,9 @@ export function ProjectLogPane({
   }, [selectedProjectId, workbenchApi]);
 
   useEffect(() => {
-    void loadLogs();
+    queueMicrotask(() => {
+      void loadLogs();
+    });
   }, [loadLogs]);
 
   const refresh = async () => {
@@ -176,7 +178,7 @@ export function ProjectLogPane({
               setCreateDialogOpen(false);
             })
             .catch((error) => {
-              workbenchApi.showError((error as Error).message);
+              workbenchApi.showError(getErrorMessage(error));
             })
             .finally(() => {
               workbenchApi.setBusy(null);

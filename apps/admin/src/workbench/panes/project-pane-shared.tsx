@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { ProjectSummary, ProjectTaskRecord } from "@blog-system/content-core";
+import { getErrorMessage, type ProjectSummary, type ProjectTaskRecord } from "@blog-system/content-core";
 
 import { api } from "../../api";
 
@@ -38,7 +38,6 @@ export function useProjectSelection(
   const syncSelectedProject = useCallback((projectId: string | null) => {
     selectedProjectIdRef.current = projectId;
     setSelectedProjectId(projectId);
-    storeProjectId(projectId);
   }, []);
 
   const loadProjects = useCallback(async () => {
@@ -54,7 +53,7 @@ export function useProjectSelection(
       showError(null);
       return payload.projects;
     } catch (error) {
-      showError((error as Error).message);
+      showError(getErrorMessage(error));
       return [];
     } finally {
       setLoadingProjects(false);
@@ -63,27 +62,34 @@ export function useProjectSelection(
 
   useEffect(() => {
     selectedProjectIdRef.current = selectedProjectId;
+    storeProjectId(selectedProjectId);
   }, [selectedProjectId]);
 
-  useEffect(() => {
+  const [prevSyncedProjects, setPrevSyncedProjects] = useState(availableProjects);
+  const [prevSyncedActiveProjectId, setPrevSyncedActiveProjectId] = useState(activeProjectId);
+  if (prevSyncedProjects !== availableProjects || prevSyncedActiveProjectId !== activeProjectId) {
+    setPrevSyncedProjects(availableProjects);
+    setPrevSyncedActiveProjectId(activeProjectId);
     setProjects(availableProjects);
     setLoadingProjects(false);
     const nextProjectId = resolveSelectedProjectId(
       availableProjects,
-      activeProjectId ?? selectedProjectIdRef.current
+      activeProjectId ?? selectedProjectId
     );
-    syncSelectedProject(nextProjectId);
-  }, [activeProjectId, availableProjects, syncSelectedProject]);
-
-  useEffect(() => {
-    void loadProjects();
-  }, [loadProjects]);
-
-  useEffect(() => {
-    if (activeProjectId && activeProjectId !== selectedProjectId) {
-      syncSelectedProject(activeProjectId);
+    if (nextProjectId !== selectedProjectId) {
+      setSelectedProjectId(nextProjectId);
     }
-  }, [activeProjectId, selectedProjectId, syncSelectedProject]);
+  }
+
+  if (activeProjectId && activeProjectId !== selectedProjectId) {
+    setSelectedProjectId(activeProjectId);
+  }
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void loadProjects();
+    });
+  }, [loadProjects]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
@@ -118,7 +124,7 @@ export function useProjectTasks(projectId: string | null, workbenchApi: Workbenc
       showError(null);
       return payload.tasks;
     } catch (error) {
-      showError((error as Error).message);
+      showError(getErrorMessage(error));
       return [];
     } finally {
       setLoadingTasks(false);
@@ -126,7 +132,9 @@ export function useProjectTasks(projectId: string | null, workbenchApi: Workbenc
   }, [projectId, showError]);
 
   useEffect(() => {
-    void loadTasks();
+    queueMicrotask(() => {
+      void loadTasks();
+    });
   }, [loadTasks]);
 
   return {
@@ -180,7 +188,7 @@ export async function promptCreateProject(workbenchApi: PaneComponentProps["api"
     workbenchApi.showError(null);
     return payload;
   } catch (error) {
-    workbenchApi.showError((error as Error).message);
+    workbenchApi.showError(getErrorMessage(error));
     return null;
   } finally {
     workbenchApi.setBusy(null);
@@ -230,14 +238,17 @@ export function ProjectLogCreateDialog({
   const [taskId, setTaskId] = useState("");
   const [type, setType] = useState("note");
 
-  useEffect(() => {
-    if (!open) {
-      return;
+  const [prevDialogSync, setPrevDialogSync] = useState<{ open: boolean; taskRows: typeof taskRows }>({
+    open: false,
+    taskRows
+  });
+  if (prevDialogSync.open !== open || prevDialogSync.taskRows !== taskRows) {
+    setPrevDialogSync({ open, taskRows });
+    if (open) {
+      setTaskId(taskRows[0]?.task.id ?? "");
+      setType("note");
     }
-
-    setTaskId(taskRows[0]?.task.id ?? "");
-    setType("note");
-  }, [open, taskRows]);
+  }
 
   if (!open) {
     return null;

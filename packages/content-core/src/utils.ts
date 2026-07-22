@@ -12,6 +12,31 @@ export function toPosixPath(value: string): string {
   return value.replace(/\\/g, "/").replace(/^\/+/, "");
 }
 
+export function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\r/g, "&#13;")
+    .replace(/\n/g, "&#10;");
+}
+
+export function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function hashText(value: string): string {
+  let hash = 2166136261;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0).toString(36);
+}
+
 export function titleFromFileName(fileName: string): string {
   return fileName
     .replace(/\.md$/i, "")

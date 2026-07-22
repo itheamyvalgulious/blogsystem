@@ -17,8 +17,14 @@ export const defaultSiteConfig: SiteConfig = {
 
 export async function loadSiteConfig(configRoot: string): Promise<SiteConfig> {
   const configPath = path.join(configRoot, "site.json");
-  const raw = (await fs.readFile(configPath, "utf8")).replace(/^\uFEFF/, "");
-  const parsed = JSON.parse(raw) as Partial<SiteConfig>;
+  let parsed: Partial<SiteConfig> = {};
+  try {
+    const raw = (await fs.readFile(configPath, "utf8")).replace(/^\uFEFF/, "");
+    parsed = JSON.parse(raw) as Partial<SiteConfig>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // site.json 不存在时回退默认配置（init-workspace 不会创建该文件）
+  }
 
   return {
     backgroundImage: parsed.backgroundImage?.trim() || "",

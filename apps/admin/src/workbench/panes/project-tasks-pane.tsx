@@ -1,3 +1,6 @@
+import { getErrorMessage } from "@blog-system/content-core";
+
+import { api } from "../../api";
 import { formatProjectDate, formatProjectDateTime } from "../project-utils";
 import { buildProjectTaskRows } from "../project-task-utils";
 import type { PaneComponentProps } from "../types";
@@ -69,7 +72,7 @@ export function ProjectTasksPane({
                   });
                   workbenchApi.showError(null);
                 } catch (error) {
-                  workbenchApi.showError((error as Error).message);
+                  workbenchApi.showError(getErrorMessage(error));
                 } finally {
                   workbenchApi.setBusy(null);
                 }

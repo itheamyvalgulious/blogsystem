@@ -1,5 +1,14 @@
 import { useState } from "react";
 
+declare global {
+  interface Window {
+    /** Exposed by the Electron preload script (apps/desktop/src/preload.ts). */
+    desktopAuth?: {
+      getCredentials(): { username: string; password: string } | null;
+    };
+  }
+}
+
 export function LoginView({
   busy,
   error,
@@ -9,8 +18,16 @@ export function LoginView({
   error: string | null;
   onLogin: (username: string, password: string) => Promise<void>;
 }) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("changeme123");
+  // Prefill from the desktop shell when available; otherwise start empty.
+  const [prefill] = useState(() => {
+    try {
+      return typeof window === "undefined" ? null : window.desktopAuth?.getCredentials() ?? null;
+    } catch {
+      return null;
+    }
+  });
+  const [username, setUsername] = useState(prefill?.username ?? "");
+  const [password, setPassword] = useState(prefill?.password ?? "");
 
   return (
     <div className="login-shell">

@@ -396,7 +396,7 @@ test("clearing folder metadata removes the folder metadata indicator", async () 
   const { agent, contentRoot } = await setupTempApp();
 
   const findFolder = (
-    nodes: Array<{ path?: string; type?: string; children?: unknown[] }>,
+    nodes: Array<{ path?: string; type?: string; children?: unknown[]; hasMetadata?: boolean }>,
     target: string
   ): { hasMetadata?: boolean } | undefined => {
     for (const node of nodes) {
@@ -404,7 +404,7 @@ test("clearing folder metadata removes the folder metadata indicator", async () 
         return node;
       }
       if (node.children) {
-        const found = findFolder(node.children as Array<{ path?: string; type?: string; children?: unknown[] }>, target);
+        const found = findFolder(node.children as Array<{ path?: string; type?: string; children?: unknown[]; hasMetadata?: boolean }>, target);
         if (found) {
           return found;
         }
@@ -464,7 +464,7 @@ test("a folder with a legacy empty metadata file does not show a metadata indica
   const { agent, contentRoot } = await setupTempApp();
 
   const findFolder = (
-    nodes: Array<{ path?: string; type?: string; children?: unknown[] }>,
+    nodes: Array<{ path?: string; type?: string; children?: unknown[]; hasMetadata?: boolean }>,
     target: string
   ): { hasMetadata?: boolean } | undefined => {
     for (const node of nodes) {
@@ -472,7 +472,7 @@ test("a folder with a legacy empty metadata file does not show a metadata indica
         return node;
       }
       if (node.children) {
-        const found = findFolder(node.children as Array<{ path?: string; type?: string; children?: unknown[] }>, target);
+        const found = findFolder(node.children as Array<{ path?: string; type?: string; children?: unknown[]; hasMetadata?: boolean }>, target);
         if (found) {
           return found;
         }

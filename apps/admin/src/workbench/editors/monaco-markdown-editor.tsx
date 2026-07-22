@@ -61,7 +61,8 @@ export function MonacoMarkdownEditor({
         inlayHints: { enabled: "off" },
         largeFileOptimizations: true,
         lightbulb: {
-          enabled: "off"
+          // ShowLightbulbIconMode.Off === "off"; the literal keeps the import type-only.
+          enabled: "off" as monacoEditor.editor.ShowLightbulbIconMode
         },
         links: false,
         minimap: { enabled: false },

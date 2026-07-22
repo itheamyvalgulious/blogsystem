@@ -3,6 +3,7 @@ import {
   PROJECT_RECENT_ACTIVITY_WINDOW_DAYS,
   PROJECT_STATUS_VALUES,
   PROJECT_TASK_STATUS_VALUES,
+  getErrorMessage,
   isProjectTaskCompletedStatus,
   parseProjectLogRecord,
   parseProjectRecord,
@@ -179,16 +180,31 @@ export function ProjectOverviewEditor({
       setLogs(logPayload.logs);
       showWorkbenchError(null);
     } catch (error) {
-      showWorkbenchError((error as Error).message);
+      showWorkbenchError(getErrorMessage(error));
     } finally {
       setLoadingWorkspace(false);
     }
   }, [projectId, showWorkbenchError]);
 
-  useEffect(() => {
+  const [prevWorkspaceLoaders, setPrevWorkspaceLoaders] = useState({
+    loadHomePinState,
+    loadProjectWorkspace,
+    projectId
+  });
+  if (
+    prevWorkspaceLoaders.loadHomePinState !== loadHomePinState ||
+    prevWorkspaceLoaders.loadProjectWorkspace !== loadProjectWorkspace ||
+    prevWorkspaceLoaders.projectId !== projectId
+  ) {
+    setPrevWorkspaceLoaders({ loadHomePinState, loadProjectWorkspace, projectId });
     setActiveTab("overview");
-    void loadProjectWorkspace();
-    void loadHomePinState();
+  }
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void loadProjectWorkspace();
+      void loadHomePinState();
+    });
   }, [loadHomePinState, loadProjectWorkspace, projectId]);
 
   useEffect(() => {
@@ -220,7 +236,7 @@ export function ProjectOverviewEditor({
       workbenchApi.closeProjectDocuments(projectId);
       workbenchApi.showError(null);
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
     } finally {
       workbenchApi.setBusy(null);
     }
@@ -375,7 +391,7 @@ export function ProjectOverviewEditor({
                       setIsPinnedToHome(!isPinnedToHome);
                       workbenchApi.showError(null);
                     } catch (error) {
-                      workbenchApi.showError((error as Error).message);
+                      workbenchApi.showError(getErrorMessage(error));
                     } finally {
                       setUpdatingHome(false);
                     }
@@ -429,7 +445,7 @@ export function ProjectOverviewEditor({
                         });
                         workbenchApi.showError(null);
                       } catch (error) {
-                        workbenchApi.showError((error as Error).message);
+                        workbenchApi.showError(getErrorMessage(error));
                       } finally {
                         workbenchApi.setBusy(null);
                       }
@@ -594,7 +610,7 @@ export function ProjectOverviewEditor({
               setCreateLogDialogOpen(false);
             })
             .catch((error) => {
-              workbenchApi.showError((error as Error).message);
+              workbenchApi.showError(getErrorMessage(error));
             })
             .finally(() => {
               workbenchApi.setBusy(null);
@@ -789,14 +805,10 @@ export function ProjectLogEditor({
   const parsed = parseProjectLogRecord(logDocument.logId, value);
   const { tasks } = useProjectTasks(logDocument.projectId, workbenchApi);
   const selectedTaskId = parsed.taskIds[0] ?? "";
-  const taskRows = useMemo(
-    () =>
-      buildProjectTaskRows(tasks, {
-        include: (task) => task.status === "todo" || task.id === selectedTaskId,
-        promoteHiddenParents: true
-      }),
-    [selectedTaskId, tasks]
-  );
+  const taskRows = buildProjectTaskRows(tasks, {
+    include: (task) => task.status === "todo" || task.id === selectedTaskId,
+    promoteHiddenParents: true
+  });
 
   return (
     <div className="project-editor project-editor--with-body">

@@ -238,7 +238,7 @@ function parseFloatNum(state: State, expected = false): number | null {
 }
 
 function parseName(state: State, expected: boolean): string | null {
-  const name = eat(state, /[0-9a-z_\-]+/i);
+  const name = eat(state, /[0-9a-z_-]+/i);
   if (name === null && expected) {
     throw makeError(state, "Expected name.");
   }
@@ -273,7 +273,7 @@ function parseColour(state: State, expected = false): ParserColour | null {
 function skipToCommaOrBracket(state: State, brackets: RegExp | null = null) {
   return (diagnostic: ParseError | ParseWarning | null = null): Range => {
     const start = position(state);
-    state.code = state.code.replace(/^[^,\]\}]*(?=[,\]\}])/, "");
+    state.code = state.code.replace(/^[^,\]}]*(?=[,\]}])/, "");
     const range = rangeFrom(state, start);
     if (brackets !== null) {
       state.code = state.code.replace(brackets, "");
@@ -338,7 +338,7 @@ function parseDiagramOption(state: State) {
     eatWhitespace(state);
     eat(state, "=", true);
     eatWhitespace(state);
-    if (eat(state, /-?[0-9a-z\.]+/) === null) {
+    if (eat(state, /-?[0-9a-z.]+/) === null) {
       throw makeError(state, "Expected separation amount.");
     }
     return;
@@ -660,9 +660,9 @@ function parseEdgeOption(state: State, edge: ParserEdge) {
     return;
   }
   let neg = true;
-  if (eat(state, "bend left") || ((neg = false) || eat(state, "bend right"))) {
+  if (eat(state, "bend left") || ((neg = false), eat(state, "bend right"))) {
     eatWhitespace(state);
-    let amount = 1;
+    const amount = 1;
     if (eat(state, "=")) {
       eatWhitespace(state);
       parseInteger(state, true);
@@ -671,7 +671,7 @@ function parseEdgeOption(state: State, edge: ParserEdge) {
     return;
   }
   neg = true;
-  if (eat(state, "shift left") || ((neg = false) || eat(state, "shift right"))) {
+  if (eat(state, "shift left") || ((neg = false), eat(state, "shift right"))) {
     eatWhitespace(state);
     let amount = 1;
     if (eat(state, "=")) {
@@ -916,7 +916,7 @@ function parseEdgeOption(state: State, edge: ParserEdge) {
     return;
   }
   let ate_color = false;
-  if (eat(state, "draw") || ((ate_color = true) && eat(state, "color"))) {
+  if (eat(state, "draw") || ((ate_color = true), eat(state, "color"))) {
     eatWhitespace(state);
     eat(state, "=", true);
     eatWhitespace(state);
@@ -1005,7 +1005,7 @@ function parseLabelOption(state: State, edge: ParserEdge) {
   }
   if (eat(state, "anchor=center")) return;
   if (eat(state, "allow upside down")) return;
-  unknownOptionWarning(state, /^[^,\}]*(?=[,\}])/, "label");
+  unknownOptionWarning(state, /^[^,}]*(?=[,}])/, "label");
 }
 
 function endpointKey(endpoint: { x: number; y: number } | string): string {

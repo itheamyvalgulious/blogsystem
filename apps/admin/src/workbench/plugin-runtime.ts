@@ -1,4 +1,5 @@
 import type {
+  AnyWorkbenchContributionDefinition,
   CommandDefinition,
   EditorContributionDefinition,
   EditorActionDefinition,
@@ -7,8 +8,7 @@ import type {
   PasteHandlerDefinition,
   PluginDefinition,
   PluginSetupContext,
-  ThemeDefinition,
-  WorkbenchContributionDefinition
+  ThemeDefinition
 } from "./types";
 
 export class PluginRuntime {
@@ -19,7 +19,7 @@ export class PluginRuntime {
   private readonly markdownFenceRenderers = new Map<string, MarkdownFenceRendererFeatureDefinition>();
   private readonly themes = new Map<string, ThemeDefinition>();
   private readonly pasteHandlers: PasteHandlerDefinition[] = [];
-  private readonly workbenchContributions = new Map<string, WorkbenchContributionDefinition>();
+  private readonly workbenchContributions = new Map<string, AnyWorkbenchContributionDefinition>();
   private readonly plugins = new Set<string>();
 
   activate(plugins: PluginDefinition[]) {

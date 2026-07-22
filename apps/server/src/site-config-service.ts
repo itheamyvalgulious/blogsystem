@@ -3,6 +3,8 @@ import path from "node:path";
 
 import Ajv from "ajv";
 
+import { ConfigValidationError } from "./errors.js";
+
 export const siteConfigSchema = {
   type: "object",
   additionalProperties: false,
@@ -22,7 +24,12 @@ export const siteConfigSchema = {
 const ajv = new Ajv({ allErrors: true });
 const validateSiteConfig = ajv.compile(siteConfigSchema);
 
-function normalizeSiteConfigValue(value: Record<string, unknown>) {
+function normalizeSiteConfigValue(value: {
+  backgroundImage?: unknown;
+  enabledPlugins?: unknown;
+  siteDescription?: unknown;
+  siteTitle?: unknown;
+}) {
   return {
     backgroundImage: typeof value.backgroundImage === "string" ? value.backgroundImage : "",
     enabledPlugins: Array.isArray(value.enabledPlugins) ? value.enabledPlugins : [],
@@ -44,7 +51,7 @@ export async function loadSiteConfig(configRoot: string) {
     const message = (validateSiteConfig.errors ?? [])
       .map((error) => `siteConfig${error.instancePath} ${error.message}`)
       .join("; ");
-    throw new Error(message);
+    throw new ConfigValidationError(message);
   }
 
   return {
@@ -60,7 +67,7 @@ export async function saveSiteConfig(configRoot: string, raw: string) {
     const message = (validateSiteConfig.errors ?? [])
       .map((error) => `siteConfig${error.instancePath} ${error.message}`)
       .join("; ");
-    throw new Error(message);
+    throw new ConfigValidationError(message);
   }
 
   const siteConfigPath = getSiteConfigPath(configRoot);

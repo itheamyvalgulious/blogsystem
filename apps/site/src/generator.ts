@@ -7,12 +7,17 @@ import type { ArticleRecord } from "@blog-system/content-core";
 import { loadWorkspacePaths } from "@blog-system/content-core/node";
 import { loadSiteData, scanArticles } from "@blog-system/content-core/node";
 
-import { sitePlugins } from "./plugins.js";
+import { enabledNavigation, sitePlugins } from "./plugins/index.js";
+import type {
+  SiteDataPluginDefinition,
+  SiteMarkdownPluginDefinition,
+  SitePagePluginDefinition
+} from "./plugins/index.js";
 import { sanitizeSiteDataForProtectedContent } from "./protected-content.js";
 import { loadMarkdownBlockConfig } from "./markdown-block-config.js";
 import { createWriteHtml, createWriteTextAsset, normalizeBasePath, type SiteBuildContext } from "./runtime.js";
 import { loadSiteConfig } from "./site-config.js";
-import { getThemeGroupsRoot, listEnabledThemeAssets } from "./theme-groups.js";
+import { getThemeGroupsRoot, listEnabledThemeAssets } from "./themes/index.js";
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
@@ -130,10 +135,7 @@ async function copyEnabledThemeAssets(
 }
 
 async function buildNotFoundPage(context: SiteBuildContext) {
-  const navigation = sitePlugins
-    .filter((plugin) => context.config.enabledPlugins.includes(plugin.id))
-    .map((plugin) => plugin.getNavigationItem?.(context))
-    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const navigation = enabledNavigation(context);
 
   const html = context.theme.renderPage({
     basePath: context.basePrefix,
@@ -183,7 +185,8 @@ export async function buildSite(customSettings?: Partial<SiteBuildSettings>) {
   const markdownBlockConfig = await loadMarkdownBlockConfig(settings.configRoot);
   const enabledThemeAssets = await listEnabledThemeAssets(settings.configRoot);
   const enabledMarkdownPlugins = sitePlugins.filter(
-    (candidate) => candidate.kind === "markdown" && config.enabledPlugins.includes(candidate.id)
+    (candidate): candidate is SiteMarkdownPluginDefinition =>
+      candidate.kind === "markdown" && config.enabledPlugins.includes(candidate.id)
   );
 
   const siteData = await loadSiteData(settings.contentRoot, basePrefix);
@@ -231,7 +234,7 @@ export async function buildSite(customSettings?: Partial<SiteBuildSettings>) {
 
   if (protectedContentPlugin?.kind === "protected-content") {
     await protectedContentPlugin.assertEnabled?.(initialContext);
-    const protectedAssets = hasProtectedContent ? protectedContentPlugin.getAssets?.(initialContext) ?? [] : [];
+    const protectedAssets = hasProtectedContent ? await protectedContentPlugin.getAssets?.(initialContext) ?? [] : [];
     for (const asset of protectedAssets) {
       await writeTextAsset(asset.relativePath, asset.content);
     }
@@ -274,7 +277,7 @@ export async function buildSite(customSettings?: Partial<SiteBuildSettings>) {
     )
   );
 
-  for (const plugin of sitePlugins.filter((candidate) => candidate.kind === "data" && config.enabledPlugins.includes(candidate.id))) {
+  for (const plugin of sitePlugins.filter((candidate): candidate is SiteDataPluginDefinition => candidate.kind === "data" && config.enabledPlugins.includes(candidate.id))) {
     await plugin.run(context);
   }
 
@@ -290,7 +293,7 @@ export async function buildSite(customSettings?: Partial<SiteBuildSettings>) {
     "utf8"
   );
 
-  for (const plugin of sitePlugins.filter((candidate) => candidate.kind === "page" && config.enabledPlugins.includes(candidate.id))) {
+  for (const plugin of sitePlugins.filter((candidate): candidate is SitePagePluginDefinition => candidate.kind === "page" && config.enabledPlugins.includes(candidate.id))) {
     await plugin.run(context);
   }
 

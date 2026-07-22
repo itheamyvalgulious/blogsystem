@@ -14,6 +14,7 @@ import { convertTikzLengthToPercent } from "./quiver-data.js";
 
 export type { CommutativeFenceParams } from "./fence-params.js";
 export { parseFenceParams } from "./fence-params.js";
+export { url_parameters } from "./quiver-geometry.js";
 export type {
   ParseDiagnostic,
   TikzcdParseResult
@@ -148,6 +149,12 @@ export class CommutativeError extends Error {
     super(message);
     this.code = code;
   }
+}
+
+// Local equivalent of content-core's getErrorMessage; commutative cannot
+// depend on content-core because content-core depends on commutative.
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 interface RenderNode {
@@ -613,7 +620,7 @@ export function parseCommutative(raw: string): CommutativeDocument {
   try {
     parsed = JSON.parse(trimmedRaw);
   } catch (error) {
-    throw new CommutativeError("invalid-json", (error as Error).message);
+    throw new CommutativeError("invalid-json", getErrorMessage(error));
   }
 
   if (Array.isArray(parsed)) {
@@ -876,46 +883,6 @@ function bezierTangent(
       3 * mt * mt * (c1y - startY) +
       6 * mt * t * (c2y - c1y) +
       3 * t * t * (endY - c2y)
-  };
-}
-
-function adjustPoint(point: { x: number; y: number }, tangent: { x: number; y: number }, amount: number) {
-  const { ux, uy } = normalizeVector(tangent.x, tangent.y);
-  return {
-    x: point.x + ux * amount,
-    y: point.y + uy * amount
-  };
-}
-
-function loopGeometry(node: RenderNode, options: CommutativeEdgeOptions | undefined) {
-  const radius = Math.max(28, Math.abs(options?.radius ?? 3) * 12);
-  const angleDeg = options?.angle ?? -90;
-  const center = vertexCenter(node);
-  const angleRad = (angleDeg * Math.PI) / 180;
-  const loopCenter = {
-    x: center.x + Math.cos(angleRad) * radius * 1.4,
-    y: center.y + Math.sin(angleRad) * radius * 1.4
-  };
-  const startAngle = angleRad + Math.PI * 0.85;
-  const endAngle = angleRad - Math.PI * 0.85;
-  const start = {
-    x: loopCenter.x + Math.cos(startAngle) * radius,
-    y: loopCenter.y + Math.sin(startAngle) * radius
-  };
-  const end = {
-    x: loopCenter.x + Math.cos(endAngle) * radius,
-    y: loopCenter.y + Math.sin(endAngle) * radius
-  };
-  const labelPoint = {
-    x: loopCenter.x + Math.cos(angleRad) * (radius + 22),
-    y: loopCenter.y + Math.sin(angleRad) * (radius + 22)
-  };
-
-  return {
-    end,
-    labelPoint,
-    path: `M ${start.x} ${start.y} A ${radius} ${radius} 0 1 1 ${end.x} ${end.y}`,
-    start
   };
 }
 
@@ -1234,19 +1201,6 @@ function renderQuiverArrowEdge(
   </g>`;
 }
 
-function edgeClassForBody(bodyName: string | undefined) {
-  switch (bodyName) {
-    case "dashed":
-      return "cg-edge-path cg-edge-path--dashed";
-    case "dotted":
-      return "cg-edge-path cg-edge-path--dotted";
-    case "squiggly":
-      return "cg-edge-path cg-edge-path--squiggly";
-    default:
-      return "cg-edge-path";
-  }
-}
-
 function renderCornerEdge(
   edge: CommutativeEdgeCell,
   source: RenderNode,
@@ -1298,25 +1252,6 @@ function renderAdjunctionEdge(
     <path d="M ${barStart.x} ${barStart.y} L ${barEnd.x} ${barEnd.y} M ${stemStart.x} ${stemStart.y} L ${stemEnd.x} ${stemEnd.y}" stroke="${colour}" stroke-width="${STROKE}" fill="none" stroke-linecap="round" />
     ${renderLabel(labelPoint, edge.label, labelColour)}
   </g>`;
-}
-
-function renderLoopEdge(
-  edge: CommutativeEdgeCell,
-  node: RenderNode,
-  colour: string,
-  labelColour: string
-) {
-  return renderQuiverArrowEdge(edge, node, node, colour, labelColour);
-}
-
-function renderStandardEdge(
-  edge: CommutativeEdgeCell,
-  source: RenderNode,
-  target: RenderNode,
-  colour: string,
-  labelColour: string
-) {
-  return renderQuiverArrowEdge(edge, source, target, colour, labelColour);
 }
 
 function renderEdge(edge: CommutativeEdgeCell, nodes: RenderNode[]) {

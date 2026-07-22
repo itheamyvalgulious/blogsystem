@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { getErrorMessage } from "@blog-system/content-core";
+
 import {
   api,
   type GitChangedFilePayload,
@@ -33,7 +35,7 @@ export function GitPane({ api: workbenchApi }: PaneComponentProps) {
       setInitialized(statusPayload.initialized && historyPayload.initialized);
       workbenchApi.showError(null);
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
     } finally {
       if (!options?.quiet) {
         setRefreshing(false);
@@ -42,7 +44,9 @@ export function GitPane({ api: workbenchApi }: PaneComponentProps) {
   };
 
   useEffect(() => {
-    void loadGitData();
+    queueMicrotask(() => {
+      void loadGitData();
+    });
 
     const intervalId = window.setInterval(() => {
       void loadGitData({ quiet: true });
@@ -75,7 +79,7 @@ export function GitPane({ api: workbenchApi }: PaneComponentProps) {
       await loadGitData();
       workbenchApi.showError(null);
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
     } finally {
       setActionBusy(null);
       workbenchApi.setBusy(null);

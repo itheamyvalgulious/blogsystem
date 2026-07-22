@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { getErrorMessage } from "@blog-system/content-core";
+
 import { api, type ThemeGroupsPayload } from "../../api";
 
 import type { PaneComponentProps } from "../types";
@@ -21,13 +23,15 @@ export function ThemePane({ api: workbenchApi }: PaneComponentProps) {
       workbenchApi.showError(null);
       return payload;
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
       return null;
     }
   };
 
   useEffect(() => {
-    void loadThemeGroups();
+    queueMicrotask(() => {
+      void loadThemeGroups();
+    });
   }, []);
 
   useEffect(
@@ -50,7 +54,7 @@ export function ThemePane({ api: workbenchApi }: PaneComponentProps) {
       await refreshThemeGroups();
       workbenchApi.showError(null);
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
     } finally {
       workbenchApi.setBusy(null);
     }

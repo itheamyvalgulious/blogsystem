@@ -1,20 +1,11 @@
 import { useEffect, useState } from "react";
 
+import { getErrorMessage } from "@blog-system/content-core";
+
 import { api, type MediaAssetPayload } from "../../api";
+import { formatBytes } from "../../utils";
 
 import type { PaneComponentProps } from "../types";
-
-function formatBytes(value: number) {
-  if (value < 1024) {
-    return `${value} B`;
-  }
-
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 async function fileToBase64(file: File) {
   return new Promise<{ mimeType: string; base64Data: string; fileName: string }>((resolve, reject) => {
@@ -41,12 +32,14 @@ export function MediaPane({ api: workbenchApi }: PaneComponentProps) {
       setAssets(response.assets);
       workbenchApi.showError(null);
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
     }
   };
 
   useEffect(() => {
-    void loadAssets();
+    queueMicrotask(() => {
+      void loadAssets();
+    });
   }, []);
 
   const uploadFiles = async (files: FileList | null) => {
@@ -61,7 +54,7 @@ export function MediaPane({ api: workbenchApi }: PaneComponentProps) {
       await loadAssets();
       workbenchApi.showError(null);
     } catch (error) {
-      workbenchApi.showError((error as Error).message);
+      workbenchApi.showError(getErrorMessage(error));
     } finally {
       workbenchApi.setBusy(null);
     }

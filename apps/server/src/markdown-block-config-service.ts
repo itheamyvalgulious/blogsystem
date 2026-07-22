@@ -10,6 +10,8 @@ import {
   type MarkdownBlockConfig
 } from "@blog-system/content-core";
 
+import { ConfigValidationError } from "./errors.js";
+
 const ajv = new Ajv({ allErrors: true });
 const validateMarkdownBlockConfig = ajv.compile<MarkdownBlockConfig>(markdownBlockConfigSchema);
 
@@ -22,7 +24,7 @@ function validateParsedMarkdownBlockConfig(value: unknown) {
     const message = (validateMarkdownBlockConfig.errors ?? [])
       .map((error) => `markdownBlockConfig${error.instancePath} ${error.message}`)
       .join("; ");
-    throw new Error(message);
+    throw new ConfigValidationError(message);
   }
 
   const normalized = normalizeMarkdownBlockConfig(value);
@@ -33,7 +35,7 @@ function validateParsedMarkdownBlockConfig(value: unknown) {
   ];
 
   if (errors.length > 0) {
-    throw new Error(errors.join(" "));
+    throw new ConfigValidationError(errors.join(" "));
   }
 
   return normalized;

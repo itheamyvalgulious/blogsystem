@@ -108,9 +108,8 @@ function normalizePeriodEntry(
 function normalizeUsageStats(value: Partial<UsageStats> | null | undefined): UsageStats {
   const daily = Array.isArray(value?.daily)
     ? value.daily
-        .filter(
-          (entry): entry is Partial<UsageStatsPeriodEntry> & { periodKey: string } =>
-            Boolean(entry && typeof entry.periodKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(entry.periodKey))
+        .filter((entry) =>
+          Boolean(entry && typeof entry.periodKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(entry.periodKey))
         )
         .map((entry) => normalizePeriodEntry(entry))
         .sort((left, right) => right.periodKey.localeCompare(left.periodKey))

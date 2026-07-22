@@ -1,16 +1,13 @@
 import {
   COMMUTATIVE_FENCE_LANGUAGE,
-  commutativeCssText,
   createEmptyCommutativeDocument,
   encodeCommutativeBase64,
   parseCommutative,
-  parseFenceParams,
   parseTikzcd,
   renderCommutativeFence,
-  renderCommutativeStaticHtml,
-  stripTikzcdWrappers,
-  toCommutativeDocument
+  stripTikzcdWrappers
 } from "@blog-system/commutative";
+import { getErrorMessage } from "@blog-system/content-core";
 
 import type * as monacoEditor from "monaco-editor";
 import type { PluginDefinition, WorkbenchDocument } from "../types";
@@ -301,12 +298,16 @@ function openCommutativeModal(
       window.alert("Commutative editor is not ready yet.");
       return;
     }
-    // Send export request to iframe.
-    iframeWindow.postMessage({ type: "export-tikz-cd" }, "*");
+    // Send export request to the same-origin quiver iframe.
+    iframeWindow.postMessage({ type: "export-tikz-cd" }, window.location.origin);
   };
 
-  // Listen for the iframe's export response.
+  // Listen for the iframe's export response. The quiver page is served from
+  // the same origin, so reject messages from anywhere else.
   const messageHandler = (event: MessageEvent) => {
+    if (event.origin !== window.location.origin) {
+      return;
+    }
     if (event.source !== iframe.contentWindow) {
       return;
     }
@@ -361,7 +362,7 @@ function openCommutativeModal(
     try {
       apply();
     } catch (error) {
-      window.alert((error as Error).message);
+      window.alert(getErrorMessage(error));
     }
   });
 
