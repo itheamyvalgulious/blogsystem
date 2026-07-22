@@ -17,5 +17,6 @@ config/site-publish.local.json
 /admin-*.png
 /commutative-*.png
 .mimocode
+.vscode
 # 由 scripts/sync-quiver.mjs 生成，权威副本在 packages/commutative/vendor/quiver/
 apps/admin/public/quiver
