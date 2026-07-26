@@ -9,6 +9,7 @@ import type { ServerSettings } from "./config.js";
 import { getDefaultSettings } from "./config.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { requireAuth } from "./middleware/require-auth.js";
+import { createAiCompletionRouter } from "./routes/ai-completion.js";
 import { createArticlesRouter } from "./routes/articles.js";
 import { createAssetsRouter } from "./routes/assets.js";
 import { createAuthRouter } from "./routes/auth.js";
@@ -66,6 +67,7 @@ export function createApp(customSettings?: Partial<ServerSettings>) {
     configRoot: settings.configRoot,
     editorConfigDir: settings.editorConfigDir
   }));
+  app.use(createAiCompletionRouter({ configRoot: settings.configRoot }));
   app.use(createProjectsRouter({ projectsRoot: settings.projectsRoot }));
   app.use(createThemesRouter({ configRoot: settings.configRoot }));
   app.use(createPublishRouter({ settings }));

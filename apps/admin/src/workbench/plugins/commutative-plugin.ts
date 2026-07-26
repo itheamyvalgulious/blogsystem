@@ -9,7 +9,13 @@ import {
 } from "@blog-system/commutative";
 import { getErrorMessage } from "@blog-system/content-core";
 
-import type * as monacoEditor from "monaco-editor";
+import type {
+  EditorContentChangedEvent,
+  EditorEngineServices,
+  EditorRange,
+  WorkbenchEditorHandle,
+  WorkbenchTextModelHandle
+} from "../editor-engine";
 import type { PluginDefinition, WorkbenchDocument } from "../types";
 
 const INSERT_COMMAND_ID = "commutative.insertBlock";
@@ -21,12 +27,12 @@ interface CommutativeFenceBlock {
   content: string;
   endLineNumber: number;
   infoString: string;
-  range: monacoEditor.IRange;
+  range: EditorRange;
   startLineNumber: number;
 }
 
-let activeMarkdownEditor: monacoEditor.editor.IStandaloneCodeEditor | null = null;
-let activeMonacoApi: typeof monacoEditor | null = null;
+let activeMarkdownEditor: WorkbenchEditorHandle | null = null;
+let activeEditorServices: EditorEngineServices | null = null;
 
 function getBlockKey(block: CommutativeFenceBlock) {
   return `${block.startLineNumber}:${block.endLineNumber}:${block.content}`;
@@ -37,8 +43,8 @@ function getBlockSignature(blocks: CommutativeFenceBlock[]) {
 }
 
 function contentChangeMayAffectCommutativeBlocks(
-  editor: monacoEditor.editor.IStandaloneCodeEditor,
-  event: monacoEditor.editor.IModelContentChangedEvent
+  editor: WorkbenchEditorHandle,
+  event: EditorContentChangedEvent
 ) {
   const model = editor.getModel();
   if (!model) {
@@ -174,7 +180,7 @@ function buildCommutativeFence(latexBody: string, infoString = "") {
   return `\`\`\`${COMMUTATIVE_FENCE_LANGUAGE}${info}\n${latexBody}\n\`\`\`\n`;
 }
 
-function findCommutativeBlocks(model: monacoEditor.editor.ITextModel): CommutativeFenceBlock[] {
+function findCommutativeBlocks(model: WorkbenchTextModelHandle): CommutativeFenceBlock[] {
   const matches = model.findMatches(
     "^```commutative[^\\n]*\\n([\\s\\S]*?)\\n```[ \\t]*$",
     true,
@@ -208,7 +214,7 @@ function findCommutativeBlocks(model: monacoEditor.editor.ITextModel): Commutati
   });
 }
 
-function findBlockAtSelection(editor: monacoEditor.editor.IStandaloneCodeEditor) {
+function findBlockAtSelection(editor: WorkbenchEditorHandle) {
   const model = editor.getModel();
   const selection = editor.getSelection();
   if (!model || !selection) {
@@ -225,7 +231,7 @@ function findBlockAtSelection(editor: monacoEditor.editor.IStandaloneCodeEditor)
 }
 
 function openCommutativeModal(
-  editor: monacoEditor.editor.IStandaloneCodeEditor,
+  editor: WorkbenchEditorHandle,
   block: CommutativeFenceBlock
 ) {
   ensureAdminStyles();
@@ -370,8 +376,8 @@ function openCommutativeModal(
 }
 
 function insertCommutativeBlockAtSelection(
-  editor: monacoEditor.editor.IStandaloneCodeEditor,
-  monaco: typeof monacoEditor
+  editor: WorkbenchEditorHandle,
+  services: EditorEngineServices
 ) {
   const model = editor.getModel();
   const selection = editor.getSelection();
@@ -388,13 +394,13 @@ function insertCommutativeBlockAtSelection(
   );
   const insertionRange = containingBlock
     ? containingBlock.endLineNumber < model.getLineCount()
-      ? new monaco.Range(
+      ? new services.Range(
           containingBlock.endLineNumber + 1,
           1,
           containingBlock.endLineNumber + 1,
           1
         )
-      : new monaco.Range(
+      : new services.Range(
           model.getLineCount(),
           model.getLineMaxColumn(model.getLineCount()),
           model.getLineCount(),
@@ -437,7 +443,7 @@ function insertCommutativeBlockAtSelection(
   return true;
 }
 
-function editCurrentCommutativeBlock(editor: monacoEditor.editor.IStandaloneCodeEditor) {
+function editCurrentCommutativeBlock(editor: WorkbenchEditorHandle) {
   const block = findBlockAtSelection(editor);
   if (!block) {
     window.alert("Place the cursor inside a commutative block first.");
@@ -473,11 +479,11 @@ export const commutativePlugin: PluginDefinition = {
       keywords: ["diagram", "quiver", "commutative", "graph", "markdown"],
       handler() {
         const editor = activeMarkdownEditor;
-        const monaco = activeMonacoApi;
-        if (!editor || !monaco) {
+        const services = activeEditorServices;
+        if (!editor || !services) {
           return;
         }
-        insertCommutativeBlockAtSelection(editor, monaco);
+        insertCommutativeBlockAtSelection(editor, services);
       }
     });
 
@@ -499,17 +505,17 @@ export const commutativePlugin: PluginDefinition = {
       matches(document) {
         return isMarkdownDocument(document);
       },
-      onMount(editor, monaco, document) {
+      onMount(editor, services, document) {
         if (!isMarkdownDocument(document)) {
           return;
         }
 
         activeMarkdownEditor = editor;
-        activeMonacoApi = monaco;
+        activeEditorServices = services;
         let blockSignature = "";
         const focusDisposable = editor.onDidFocusEditorText(() => {
           activeMarkdownEditor = editor;
-          activeMonacoApi = monaco;
+          activeEditorServices = services;
         });
 
         const contentDisposable = editor.onDidChangeModelContent((event) => {
@@ -531,8 +537,8 @@ export const commutativePlugin: PluginDefinition = {
           if (activeMarkdownEditor === editor) {
             activeMarkdownEditor = null;
           }
-          if (activeMonacoApi === monaco) {
-            activeMonacoApi = null;
+          if (activeEditorServices === services) {
+            activeEditorServices = null;
           }
           focusDisposable.dispose();
           contentDisposable.dispose();

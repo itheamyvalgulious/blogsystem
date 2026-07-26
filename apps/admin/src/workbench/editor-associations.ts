@@ -11,6 +11,7 @@ import type {
 } from "./types";
 
 const CONFIG_DOCUMENT_PATHS: Record<ConfigDocumentKind, string> = {
+  aiCompletion: "config/ai-completion.local.json",
   editorAssociations: "config/editor.associations.json",
   keybindings: "config/keybindings.json",
   latexSnippets: "config/latex.snippets.json",

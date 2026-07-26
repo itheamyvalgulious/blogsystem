@@ -70,6 +70,14 @@ export const commandPalettePlugin: PluginDefinition = {
       }
     });
     context.registerCommand({
+      id: "preferences.openAiCompletionConfigJson",
+      title: "Preferences: Open AI Completion Config (JSON)",
+      keywords: ["settings", "ai", "completion", "inline", "json"],
+      handler(api) {
+        void api.openConfigDocument("aiCompletion");
+      }
+    });
+    context.registerCommand({
       id: "workbench.reopenWithEditor",
       title: "View: Reopen With Editor",
       keywords: ["editor", "reopen", "open with"],

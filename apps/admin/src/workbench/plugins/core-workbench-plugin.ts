@@ -2,6 +2,8 @@ import type { PluginDefinition } from "../types";
 import { ArticleMarkdownEditor } from "../editors/article-markdown-editor";
 import { CodeTextEditor } from "../editors/code-text-editor";
 import { HomeDashboardEditor } from "../editors/home-dashboard-editor";
+import { getPreferredEditorEngine, setPreferredEditorEngine } from "../codemirror/engine-select";
+import { getReadingMode, setReadingMode } from "../codemirror/cm-reading-mode";
 
 export const coreWorkbenchPlugin: PluginDefinition = {
   id: "core-workbench",
@@ -48,6 +50,32 @@ export const coreWorkbenchPlugin: PluginDefinition = {
       keywords: ["preview", "markdown", "view"],
       handler(api) {
         api.togglePreview();
+      }
+    });
+    context.registerCommand({
+      id: "workbench.action.toggleEditorEngine",
+      title: "View: Switch Editor Engine (切换编辑器引擎)",
+      keywords: ["editor", "engine", "monaco", "codemirror", "live", "reload"],
+      handler(api) {
+        const nextEngine = getPreferredEditorEngine() === "monaco" ? "live" : "monaco";
+        if (
+          api.hasDirtyArticleDocument() &&
+          !window.confirm(
+            "Switching the editor engine reloads the page and discards unsaved article changes. Continue?"
+          )
+        ) {
+          return;
+        }
+        setPreferredEditorEngine(nextEngine);
+        window.location.reload();
+      }
+    });
+    context.registerCommand({
+      id: "workbench.action.toggleReadingMode",
+      title: "View: Toggle Reading Mode (切换阅读模式)",
+      keywords: ["reading", "focus", "preview", "mode", "阅读", "专注"],
+      handler() {
+        setReadingMode(getReadingMode() === "read" ? "write" : "read");
       }
     });
     context.registerCommand({

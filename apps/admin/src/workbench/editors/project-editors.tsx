@@ -40,7 +40,7 @@ import type {
   ProjectTaskWorkbenchDocument,
   ProjectWorkbenchDocument
 } from "../types";
-import { MonacoMarkdownEditor } from "./monaco-markdown-editor";
+import { MarkdownEditorHost } from "./workbench-editor-host";
 import {
   ProjectLogCreateDialog,
   promptCreateProjectTaskTitle,
@@ -57,7 +57,7 @@ function renderMarkdownBodyEditor(
   onMount: WorkbenchEditorComponentProps["onMount"]
 ) {
   return (
-    <MonacoMarkdownEditor
+    <MarkdownEditorHost
       editorKey={editorKey}
       onChange={onChange}
       onMount={onMount}

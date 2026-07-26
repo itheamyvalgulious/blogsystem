@@ -76,6 +76,76 @@ export const keybindingSchema = {
   }
 } as const;
 
+export interface AiCompletionConfig {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  provider?: "openai" | "anthropic";
+  maxTokens?: number;
+  temperature?: number;
+}
+
+export const aiCompletionConfigSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["enabled", "baseUrl", "model"],
+  properties: {
+    enabled: { type: "boolean" },
+    baseUrl: { type: "string" },
+    model: { type: "string" },
+    apiKey: { type: "string" },
+    provider: { type: "string", enum: ["openai", "anthropic"] },
+    maxTokens: { type: "number" },
+    temperature: { type: "number" }
+  }
+} as const;
+
+export function normalizeAiCompletionConfig(value: unknown): AiCompletionConfig {
+  const source =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+
+  const normalized: AiCompletionConfig = {
+    enabled: false,
+    baseUrl: "https://api.openai.com/v1",
+    model: "",
+    maxTokens: 128,
+    temperature: 0.2
+  };
+
+  if (typeof source.enabled === "boolean") {
+    normalized.enabled = source.enabled;
+  }
+
+  if (typeof source.baseUrl === "string") {
+    normalized.baseUrl = source.baseUrl;
+  }
+
+  if (typeof source.model === "string") {
+    normalized.model = source.model;
+  }
+
+  if (typeof source.apiKey === "string") {
+    normalized.apiKey = source.apiKey;
+  }
+
+  if (source.provider === "openai" || source.provider === "anthropic") {
+    normalized.provider = source.provider;
+  }
+
+  if (typeof source.maxTokens === "number" && Number.isFinite(source.maxTokens)) {
+    normalized.maxTokens = source.maxTokens;
+  }
+
+  if (typeof source.temperature === "number" && Number.isFinite(source.temperature)) {
+    normalized.temperature = source.temperature;
+  }
+
+  return normalized;
+}
+
 export const editorAssociationsSchema = {
   type: "object",
   propertyNames: { minLength: 1 },

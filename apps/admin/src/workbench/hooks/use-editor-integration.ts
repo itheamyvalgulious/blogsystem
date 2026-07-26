@@ -1,13 +1,19 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
-import { type OnMount } from "@monaco-editor/react";
 import * as monacoEditor from "monaco-editor";
 
 import type { EditorSnippet } from "@blog-system/content-core";
+import { installAiInlineCompletion } from "../../ai-inline-completion";
 import {
   api,
   type EditorConfigPayload,
   type TreePayload
 } from "../../api";
+import type {
+  EditorEngineServices,
+  EditorPosition,
+  WorkbenchEditorHandle,
+  WorkbenchTextModelHandle
+} from "../editor-engine";
 import {
   getActiveKeybinding,
   getMatchingKeybindings,
@@ -48,6 +54,7 @@ import type {
   WorkbenchApi,
   WorkbenchDocument
 } from "../types";
+import { setWorkbenchCompletionContext } from "../codemirror/cm-context";
 import type { PendingArticleReveal } from "./use-document-openers";
 
 function toSnippetBody(body: string | string[]) {
@@ -96,10 +103,11 @@ interface EditorIntegrationOptions {
   activeTheme: ThemeDefinition | null;
   articleCursorStatesRef: RefObject<Record<string, StoredArticleCursorState>>;
   editorReadyVersion: number;
-  editorRef: RefObject<monacoEditor.editor.IStandaloneCodeEditor | null>;
+  editorRef: RefObject<WorkbenchEditorHandle | null>;
+  editorServicesRef: RefObject<EditorEngineServices | null>;
   getSnippetLanguageForEditor: (
-    model: monacoEditor.editor.ITextModel,
-    position: monacoEditor.Position
+    model: WorkbenchTextModelHandle,
+    position: EditorPosition
   ) => SnippetLanguageId;
   headingsRef: RefObject<CachedHeading[]>;
   jumpToActiveArticleLine: (lineNumber: number, options?: RevealLineOptions) => void;
@@ -125,6 +133,7 @@ export function useEditorIntegration({
   articleCursorStatesRef,
   editorReadyVersion,
   editorRef,
+  editorServicesRef,
   getSnippetLanguageForEditor,
   headingsRef,
   jumpToActiveArticleLine,
@@ -144,25 +153,33 @@ export function useEditorIntegration({
 }: EditorIntegrationOptions) {
   const editorFeatureCleanupRef = useRef<(() => void) | null>(null);
 
-  const handleEditorMount: OnMount = (editor, monaco) => {
+  const handleEditorMount = (editor: WorkbenchEditorHandle, services: EditorEngineServices) => {
     editorFeatureCleanupRef.current?.();
     editorFeatureCleanupRef.current = null;
     editorRef.current = editor;
-    monacoRef.current = monaco;
+    editorServicesRef.current = services;
+    // The adapter is created from the same monaco instance that
+    // `loader.config({ monaco })` pins in App, so the module import here is
+    // the exact object the editor mounted with.
+    monacoRef.current = monacoEditor;
     setEditorReadyVersion((current) => current + 1);
-    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+    monacoEditor.languages.json.jsonDefaults.setDiagnosticsOptions({
       validate: true,
       schemas: getJsonSchemaDefinitions()
     });
+    // Module-level guarded: registered once for the whole app session, not per
+    // editor mount, so the dispose it returns is intentionally not wired into
+    // editorFeatureCleanupRef.
+    installAiInlineCompletion(monacoEditor);
     if (activeTheme) {
-      monaco.editor.setTheme(activeTheme.id);
+      monacoEditor.editor.setTheme(activeTheme.id);
     }
 
     if (activeDocument?.language === "markdown") {
       const cleanups = pluginRuntime
         .getMarkdownEditorFeatures()
         .filter((feature) => feature.matches(activeDocument))
-        .map((feature) => feature.onMount?.(editor, monaco, activeDocument))
+        .map((feature) => feature.onMount?.(editor, services, activeDocument))
         .filter((cleanup): cleanup is () => void => typeof cleanup === "function");
 
       if (cleanups.length > 0) {
@@ -180,15 +197,17 @@ export function useEditorIntegration({
       editorFeatureCleanupRef.current?.();
       editorFeatureCleanupRef.current = null;
       editorRef.current = null;
+      editorServicesRef.current = null;
       monacoRef.current = null;
     }
   }, [activeDocument?.id, activeDocument?.kind, activeEditorContribution?.editorId]);
 
   useEffect(() => {
     const editor = editorRef.current;
+    const services = editorServicesRef.current;
     const model = editor?.getModel();
 
-    if (!editor || !model || !isArticleDocument(activeDocument)) {
+    if (!editor || !services || !model || !isArticleDocument(activeDocument)) {
       lastStoredArticleLineNumberRef.current = null;
       setActiveArticleLineNumber(null);
       return;
@@ -198,7 +217,7 @@ export function useEditorIntegration({
     const lineNumber = Math.max(1, Math.min(storedState?.lineNumber ?? 1, model.getLineCount()));
     const column = Math.max(1, Math.min(storedState?.column ?? 1, model.getLineMaxColumn(lineNumber)));
     const frame = window.requestAnimationFrame(() => {
-      const selection = new monacoEditor.Selection(lineNumber, column, lineNumber, column);
+      const selection = new services.Selection(lineNumber, column, lineNumber, column);
 
       editor.setSelection(selection);
       editor.setPosition({ lineNumber, column });
@@ -294,9 +313,21 @@ export function useEditorIntegration({
   }, [activeDocument?.id, editorReadyVersion, syncOutlineHeadings]);
 
   useEffect(() => {
+    // Feed the CodeMirror completion source (module singleton, read lazily at
+    // query time); mirrors the data the Monaco provider below closes over.
+    setWorkbenchCompletionContext({
+      activeDocument,
+      articleSummaries: treePayload?.articles ?? [],
+      latexSnippets: normalizedConfig.latexSnippets,
+      markdownSnippets: normalizedConfig.markdownSnippets
+    });
+  }, [activeDocument, normalizedConfig, treePayload?.articles]);
+
+  useEffect(() => {
     const editor = editorRef.current;
+    const services = editorServicesRef.current;
     const monaco = monacoRef.current;
-    if (!editor || !monaco) {
+    if (!editor || !services || !monaco) {
       return;
     }
     const allSnippets = [...normalizedConfig.markdownSnippets, ...normalizedConfig.latexSnippets];
@@ -365,10 +396,7 @@ export function useEditorIntegration({
     const domNode = editor.getDomNode();
     const textarea = domNode?.querySelector<HTMLTextAreaElement>("textarea.inputarea");
     const getSnippetController = () =>
-      editor.getContribution("snippetController2") as {
-        insert: (template: string) => void;
-        isInSnippet?: () => boolean;
-      } | null;
+      editor.getContribution("snippetController2");
     const insertSnippet = (snippet: EditorSnippet) => {
       getSnippetController()?.insert(toSnippetBody(snippet.body));
     };
@@ -380,15 +408,20 @@ export function useEditorIntegration({
       const snippetController = getSnippetController();
       const snippetLanguage =
         model && position && isArticleDocument(activeDocument) ? getSnippetLanguageForEditor(model, position) : "markdown";
+      // Engines that can report their own feature state (CodeMirror's
+      // completion state) win over the Monaco-specific DOM probe.
+      const featureState = editor.getEditorFeatureState?.();
 
       return {
         editorLangId: snippetLanguage,
         editorTextFocus: editorHasTextFocus,
         textInputFocus: editorHasTextFocus,
         inputFocus: editorHasTextFocus,
-        editorReadonly: editor.getOption(monaco.editor.EditorOption.readOnly),
+        editorReadonly: editor.getOption(services.EditorOption.readOnly),
         editorHasCompletionItemProvider: isMarkdownCompletionDocument(activeDocument),
-        suggestWidgetVisible: Boolean(domNode?.querySelector(".suggest-widget.visible")),
+        suggestWidgetVisible:
+          featureState?.suggestWidgetVisible ??
+          Boolean(domNode?.querySelector(".suggest-widget.visible")),
         editorHasMultipleSelections: (editor.getSelections()?.length ?? 0) > 1,
         editorHasSelection: hasSelection,
         editorHoverVisible: Boolean(domNode?.querySelector(".monaco-hover.visible")),
@@ -451,7 +484,7 @@ export function useEditorIntegration({
       if (action) {
         return await action.handler({
           editor,
-          monaco,
+          services,
           activeDocument,
           snippets: relevantSnippets,
           activeSnippetMatches
@@ -481,7 +514,7 @@ export function useEditorIntegration({
 
       const snippetLanguage = getSnippetLanguageForEditor(model, position);
       const linePrefix = model.getValueInRange(
-        new monaco.Range(position.lineNumber, 1, position.lineNumber, position.column)
+        new services.Range(position.lineNumber, 1, position.lineNumber, position.column)
       );
       const snippetState = resolveEditorSnippetState(linePrefix, snippetLanguage, normalizedConfig);
       const relevantSnippets = snippetState.currentLanguageSnippets;
@@ -538,13 +571,7 @@ export function useEditorIntegration({
         return;
       }
     };
-    // `onDidType` exists on the editor at runtime but is no longer exposed in
-    // monaco-editor's public typings (0.52), hence the structural assertion.
-    const typeDisposable = (
-      editor as monacoEditor.editor.IStandaloneCodeEditor & {
-        onDidType(listener: (text: string) => void): monacoEditor.IDisposable;
-      }
-    ).onDidType((text) => {
+    const typeDisposable = editor.onDidType((text) => {
       if (text.length !== 1) {
         return;
       }
@@ -581,7 +608,7 @@ export function useEditorIntegration({
 
         const currentSnippetLanguage = getSnippetLanguageForEditor(currentModel, currentPosition);
         const currentLinePrefix = currentModel.getValueInRange(
-          new monaco.Range(currentPosition.lineNumber, 1, currentPosition.lineNumber, currentPosition.column)
+          new services.Range(currentPosition.lineNumber, 1, currentPosition.lineNumber, currentPosition.column)
         );
         const snippetState = resolveEditorSnippetState(
           currentLinePrefix,

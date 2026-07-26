@@ -4,6 +4,7 @@ import { normalizeAdminHomeConfig } from "@blog-system/content-core";
 import {
   api,
   type AdminHomeConfigPayload,
+  type AiCompletionConfigPayload,
   type EditorConfigPayload,
   type MarkdownBlockConfigPayload,
   type ProjectsPayload,
@@ -32,6 +33,7 @@ interface WorkspaceDataOptions {
   draftValuesRef: RefObject<Record<string, string>>;
   schedulePreviewSourceUpdate: (nextValue: string, options?: { immediate?: boolean }) => void;
   setAdminHomePayload: Dispatch<SetStateAction<AdminHomeConfigPayload | null>>;
+  setAiCompletionConfigPayload: Dispatch<SetStateAction<AiCompletionConfigPayload | null>>;
   setConfigPayload: Dispatch<SetStateAction<EditorConfigPayload | null>>;
   setDocuments: Dispatch<SetStateAction<WorkbenchDocument[]>>;
   setMarkdownBlockConfigPayload: Dispatch<SetStateAction<MarkdownBlockConfigPayload | null>>;
@@ -54,6 +56,7 @@ export function useWorkspaceData({
   draftValuesRef,
   schedulePreviewSourceUpdate,
   setAdminHomePayload,
+  setAiCompletionConfigPayload,
   setConfigPayload,
   setDocuments,
   setMarkdownBlockConfigPayload,
@@ -98,6 +101,14 @@ export function useWorkspaceData({
     const payload = await api.getPublishConfig();
     startTransition(() => {
       setPublishConfigPayload(payload);
+    });
+    return payload;
+  };
+
+  const loadAiCompletionConfig = async () => {
+    const payload = await api.getAiCompletionConfig();
+    startTransition(() => {
+      setAiCompletionConfigPayload(payload);
     });
     return payload;
   };
@@ -250,7 +261,8 @@ export function useWorkspaceData({
       loadAdminHomeConfig(),
       loadThemeGroups(),
       loadPublishConfig(),
-      loadSiteConfig()
+      loadSiteConfig(),
+      loadAiCompletionConfig()
     ]);
     setDocuments((current) => (current.some((document) => document.kind === "home") ? current : [buildHomeDocument(), ...current]));
     activateDocument((current) => current ?? HOME_DOCUMENT_ID);
@@ -260,6 +272,7 @@ export function useWorkspaceData({
     async (
       target:
         | "adminHome"
+        | "aiCompletion"
         | "config"
         | "markdownBlockConfig"
         | "publishConfig"
@@ -270,6 +283,7 @@ export function useWorkspaceData({
         | "tree"
         | Array<
             | "adminHome"
+            | "aiCompletion"
             | "config"
             | "markdownBlockConfig"
             | "publishConfig"
@@ -292,6 +306,8 @@ export function useWorkspaceData({
               return loadMarkdownBlockConfig();
             case "publishConfig":
               return loadPublishConfig();
+            case "aiCompletion":
+              return loadAiCompletionConfig();
             case "usageStats":
               return loadUsageStats();
             case "projects":
@@ -311,6 +327,7 @@ export function useWorkspaceData({
 
   return {
     adminHomeSaveTimerRef,
+    loadAiCompletionConfig,
     loadConfig,
     loadMarkdownBlockConfig,
     loadProjects,

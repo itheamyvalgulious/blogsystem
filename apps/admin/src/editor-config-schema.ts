@@ -1,4 +1,5 @@
 import {
+  aiCompletionConfigSchema,
   editorAssociationsSchema,
   keybindingSchema,
   markdownBlockConfigSchema,
@@ -28,5 +29,6 @@ export const jsonSchemas = {
   editorAssociationsSchema,
   markdownBlockConfigSchema,
   siteConfigSchema,
-  themeGroupConfigSchema
+  themeGroupConfigSchema,
+  aiCompletionConfigSchema
 };

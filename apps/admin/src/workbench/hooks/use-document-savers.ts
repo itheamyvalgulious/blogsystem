@@ -1,10 +1,12 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import type * as monacoEditor from "monaco-editor";
+
+import type { WorkbenchEditorHandle } from "../editor-engine";
 
 import { getErrorMessage } from "@blog-system/content-core";
 
 import {
   api,
+  type AiCompletionConfigPayload,
   type EditorConfigPayload,
   type MarkdownBlockConfigPayload,
   type ProjectsPayload,
@@ -13,6 +15,7 @@ import {
   type ThemeGroupsPayload,
   type TreePayload
 } from "../../api";
+import { refreshAiCompletionStatus } from "../../ai-inline-completion";
 import {
   buildArticleDocument,
   buildProjectDocument,
@@ -34,11 +37,12 @@ import type {
 
 interface DocumentSaversOptions {
   activeDocument: WorkbenchDocument | null;
+  aiCompletionConfigPayload: AiCompletionConfigPayload | null;
   cancelPendingDirtyCheck: () => void;
   configPayload: EditorConfigPayload | null;
   documents: WorkbenchDocument[];
   draftValuesRef: RefObject<Record<string, string>>;
-  editorRef: RefObject<monacoEditor.editor.IStandaloneCodeEditor | null>;
+  editorRef: RefObject<WorkbenchEditorHandle | null>;
   flushDocumentDraft: (document?: WorkbenchDocument | null) => string | null;
   getDraftValue: (document: WorkbenchDocument) => string;
   loadProjects: () => Promise<ProjectsPayload>;
@@ -49,6 +53,7 @@ interface DocumentSaversOptions {
   refreshThemeGroupsPayload: () => Promise<ThemeGroupsPayload>;
   schedulePreviewSourceUpdate: (nextValue: string, options?: { immediate?: boolean }) => void;
   setActiveDocumentId: Dispatch<SetStateAction<string | null>>;
+  setAiCompletionConfigPayload: Dispatch<SetStateAction<AiCompletionConfigPayload | null>>;
   setBusyMessage: Dispatch<SetStateAction<string | null>>;
   setConfigPayload: Dispatch<SetStateAction<EditorConfigPayload | null>>;
   setDocuments: Dispatch<SetStateAction<WorkbenchDocument[]>>;
@@ -63,6 +68,7 @@ interface DocumentSaversOptions {
 
 export function useDocumentSavers({
   activeDocument,
+  aiCompletionConfigPayload,
   cancelPendingDirtyCheck,
   configPayload,
   documents,
@@ -78,6 +84,7 @@ export function useDocumentSavers({
   refreshThemeGroupsPayload,
   schedulePreviewSourceUpdate,
   setActiveDocumentId,
+  setAiCompletionConfigPayload,
   setBusyMessage,
   setConfigPayload,
   setDocuments,
@@ -244,6 +251,36 @@ export function useDocumentSavers({
     draftValuesRef.current["config:publishConfig"] = savedPayload.raw;
   };
 
+  const saveAiCompletionConfigDocument = async () => {
+    const aiCompletionConfigDocument = documents.find(
+      (document) => document.kind === "config" && document.configKind === "aiCompletion"
+    );
+    const raw =
+      (aiCompletionConfigDocument ? getDraftValue(aiCompletionConfigDocument) : undefined) ??
+      aiCompletionConfigPayload?.raw;
+
+    if (typeof raw !== "string") {
+      return;
+    }
+
+    const savedPayload = await api.saveAiCompletionConfig(raw);
+    setAiCompletionConfigPayload(savedPayload);
+    setDocuments((current) =>
+      current.map((document) =>
+        document.kind === "config" && document.configKind === "aiCompletion"
+          ? {
+              ...document,
+              value: savedPayload.raw,
+              savedValue: savedPayload.raw,
+              dirty: false
+            }
+          : document
+      )
+    );
+    draftValuesRef.current["config:aiCompletion"] = savedPayload.raw;
+    await refreshAiCompletionStatus();
+  };
+
   const saveMarkdownBlockConfigDocument = async () => {
     const markdownBlockDocument = documents.find(
       (document) => document.kind === "config" && document.configKind === "markdownBlockConfig"
@@ -309,6 +346,8 @@ export function useDocumentSavers({
         await saveMarkdownBlockConfigDocument();
       } else if (activeDocument.configKind === "publishConfig") {
         await savePublishConfigDocument();
+      } else if (activeDocument.configKind === "aiCompletion") {
+        await saveAiCompletionConfigDocument();
       } else if (activeDocument.configKind === "siteConfig") {
         await saveSiteConfigDocument();
       } else {

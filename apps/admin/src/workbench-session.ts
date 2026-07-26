@@ -5,6 +5,7 @@ import type {
 } from "./workbench/types";
 
 const CONFIG_DOCUMENT_KINDS = new Set<ConfigDocumentKind>([
+  "aiCompletion",
   "markdownBlockConfig",
   "markdownSnippets",
   "latexSnippets",

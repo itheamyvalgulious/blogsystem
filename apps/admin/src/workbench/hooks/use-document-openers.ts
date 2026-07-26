@@ -4,6 +4,7 @@ import { getErrorMessage } from "@blog-system/content-core";
 
 import {
   api,
+  type AiCompletionConfigPayload,
   type EditorConfigPayload,
   type MarkdownBlockConfigPayload,
   type PublishConfigPayload,
@@ -45,10 +46,12 @@ export interface PendingArticleReveal {
 interface DocumentOpenersOptions {
   activateDocument: (nextDocumentIdOrUpdater: SetStateAction<string | null>) => void;
   activeDocument: WorkbenchDocument | null;
+  aiCompletionConfigPayload: AiCompletionConfigPayload | null;
   configPayload: EditorConfigPayload | null;
   documents: WorkbenchDocument[];
   draftValuesRef: RefObject<Record<string, string>>;
   jumpToActiveArticleLine: (lineNumber: number, options?: RevealLineOptions) => void;
+  loadAiCompletionConfig: () => Promise<AiCompletionConfigPayload>;
   loadConfig: () => Promise<EditorConfigPayload>;
   loadMarkdownBlockConfig: () => Promise<MarkdownBlockConfigPayload>;
   loadPublishConfig: () => Promise<PublishConfigPayload>;
@@ -72,10 +75,12 @@ interface DocumentOpenersOptions {
 export function useDocumentOpeners({
   activateDocument,
   activeDocument,
+  aiCompletionConfigPayload,
   configPayload,
   documents,
   draftValuesRef,
   jumpToActiveArticleLine,
+  loadAiCompletionConfig,
   loadConfig,
   loadMarkdownBlockConfig,
   loadPublishConfig,
@@ -347,7 +352,9 @@ export function useDocumentOpeners({
       return;
     }
     const payload =
-      kind === "markdownBlockConfig"
+      kind === "aiCompletion"
+        ? aiCompletionConfigPayload ?? (await loadAiCompletionConfig())
+        : kind === "markdownBlockConfig"
         ? markdownBlockConfigPayload ?? (await loadMarkdownBlockConfig())
         : kind === "publishConfig"
         ? publishConfigPayload ?? (await loadPublishConfig())

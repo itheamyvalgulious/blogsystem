@@ -72,5 +72,6 @@ export function getJsonSchemaDefinitions() {
     { uri: "inmemory://schemas/markdown-blocks.json", fileMatch: [paths.markdownBlockConfigPath], schema: jsonSchemas.markdownBlockConfigSchema as object },
     { uri: "inmemory://schemas/theme-group.json", fileMatch: ["config/theme/*/theme.json"], schema: jsonSchemas.themeGroupConfigSchema as object },
     { uri: "inmemory://schemas/site.json", fileMatch: [paths.siteConfigPath], schema: jsonSchemas.siteConfigSchema as object },
+    { uri: "inmemory://schemas/ai-completion.json", fileMatch: [paths.aiCompletionConfigPath], schema: jsonSchemas.aiCompletionConfigSchema as object },
   ];
 }

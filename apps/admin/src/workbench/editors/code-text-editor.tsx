@@ -1,6 +1,6 @@
 import type { WorkbenchEditorComponentProps } from "../types";
-import { WorkbenchMonacoEditor } from "./workbench-monaco-editor";
+import { WorkbenchEditorHost } from "./workbench-editor-host";
 
 export function CodeTextEditor(props: WorkbenchEditorComponentProps) {
-  return <WorkbenchMonacoEditor {...props} />;
+  return <WorkbenchEditorHost {...props} />;
 }

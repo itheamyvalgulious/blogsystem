@@ -822,6 +822,277 @@ a {
   overflow: hidden;
 }
 
+/* CodeMirror ("live" engine) editor container; the .cm-editor inside is sized
+   by the CM theme (cm-theme.ts). */
+.cm-editor-host {
+  height: 100%;
+  min-height: 0;
+}
+
+.project-editor__embedded-editor .cm-editor-host {
+  min-height: 240px;
+}
+
+/* Live preview ("WYSIWYG mosaic") decorations for the CodeMirror engine,
+   see workbench/codemirror/cm-live-preview.ts.
+
+   HARD RULE for everything under .cm-lp-*: no vertical margins, and no
+   borders/padding that alter line height on line decorations. CM measures
+   block widgets via offsetHeight, which EXCLUDES margins — a vertical
+   margin silently corrupts the editor's height map and makes every line
+   below drift (observed: ArrowUp/Down skipping lines). Spacing belongs in
+   padding (counted by offsetHeight); borders on line decorations are drawn
+   with inset box-shadow instead. */
+.cm-lp-h1 {
+  font-size: 1.9em;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--wb-accent);
+}
+
+.cm-lp-h2 {
+  font-size: 1.6em;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--wb-accent);
+}
+
+.cm-lp-h3 {
+  font-size: 1.4em;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--wb-accent);
+}
+
+.cm-lp-h4 {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--wb-accent);
+}
+
+.cm-lp-h5 {
+  font-size: 1.15em;
+  font-weight: 600;
+  color: var(--wb-accent);
+}
+
+.cm-lp-h6 {
+  font-size: 1.05em;
+  font-weight: 600;
+  color: var(--wb-accent);
+}
+
+.cm-lp-marker {
+  color: var(--wb-foreground-muted);
+  opacity: 0.5;
+}
+
+/* Inline/line source styles (Typora-style), see computeLivePreviewStyles in
+   cm-live-preview.ts. The theme-driven HighlightStyle (cm-theme.ts) already
+   colors strong/emphasis/strikethrough/link/monospace via syntax tags; these
+   classes pin the same intent independently of the active theme and add what
+   highlighting cannot express (backgrounds, borders, delimiter fades). */
+.cm-lp-strong {
+  font-weight: 700;
+}
+
+.cm-lp-em {
+  font-style: italic;
+}
+
+.cm-lp-strike {
+  text-decoration: line-through;
+}
+
+.cm-lp-code {
+  padding: 0 2px;
+  border-radius: 6px;
+  background: var(--wb-media-bg);
+}
+
+.cm-lp-link {
+  color: var(--wb-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cm-lp-url {
+  color: var(--wb-foreground-muted);
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+/* Line decoration: inset box-shadow draws the quote bar without affecting
+   line height (a border would shift/expand layout and make lines jump). */
+.cm-lp-quote {
+  color: var(--wb-foreground-muted);
+  box-shadow: inset 3px 0 0 0 var(--wb-accent);
+  padding-left: 10px;
+}
+
+.cm-lp-listmark {
+  color: var(--wb-accent);
+  font-weight: 600;
+}
+
+.cm-lp-hr {
+  color: transparent;
+  background: linear-gradient(to right, var(--wb-border), var(--wb-border)) center / 100% 1px no-repeat;
+}
+
+.cm-lp-inline-math-row {
+  /* R3 inline band: the widget is INLINE (non-block, see
+     cm-live-preview-widgets.ts); this inline-level full-width box never
+     fits the current line box's remaining space, so it wraps onto a line
+     box of its own directly under the formula's visual segment and pushes
+     the following text down. Height enters CM's line layout as ordinary
+     inline content — no block-widget height accounting. No frame; vertical
+     padding centers the formulas in the new row. NO vertical margin:
+     inline-level boxes ignore vertical margins, so spacing belongs in
+     padding (counted by offsetHeight). */
+  display: inline-block;
+  width: 100%;
+  vertical-align: top;
+  position: relative;
+  padding: 4px 0;
+  /* See .cm-lp-block: never inherit cm-content's break-spaces. */
+  white-space: normal;
+}
+
+.cm-lp-inline-math {
+  display: inline-block;
+  color: var(--wb-foreground);
+}
+
+/* Math-region neutralization (safety net). The editor's lezer grammar is
+   math-atomic (cmMathMarkdown in cm-live-preview.ts), so markdown styling
+   should never land inside `$$`/`$` content — this mark only covers
+   transient/divergent states (e.g. unclosed input while typing). Font
+   EFFECTS are force-reset with !important; color/background are reset
+   WITHOUT it, on purpose: the cm-mtok-* theme rules (scoped by the theme
+   class, higher specificity than lezer's generated hash classes) keep
+   owning math coloring. KaTeX widgets (preview band, block previews, the
+   read-mode replacement) never get this mark's range — see
+   buildLivePreviewDecorations — so their own fonts survive. */
+.cm-lp-math,
+.cm-lp-math * {
+  font-weight: normal !important;
+  font-style: normal !important;
+  text-decoration: none !important;
+}
+
+.cm-lp-math,
+.cm-lp-math * {
+  color: inherit;
+  background: none;
+}
+
+.cm-lp-block {
+  /* Bare content below the source — no frame, no label. No vertical margin
+     (see the .cm-lp-* rule above); spacing is padding. The faint top line is
+     the only separation from the source. */
+  padding: 6px 4px;
+  border-top: 1px solid color-mix(in srgb, var(--wb-border) 45%, transparent);
+  overflow: auto;
+  /* cm-content inherits CM's `white-space: break-spaces`; rendered fragment
+     HTML contains pretty-print newlines that would each become a phantom line
+     and inflate the widget. Widgets always reset to normal collapsing. */
+  white-space: normal;
+}
+
+/* Inside float panels the block is already framed by .cm-lp-float. */
+.cm-lp-float > .cm-lp-block {
+  padding: 0;
+  border-top: none;
+}
+
+.cm-lp-block-content--pending,
+.cm-lp-block-content--error {
+  color: var(--wb-foreground-muted);
+  font-style: italic;
+}
+
+.cm-lp-block table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cm-lp-block th,
+.cm-lp-block td {
+  border: 1px solid var(--wb-border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.cm-lp-block tbody tr:nth-child(even) {
+  background: var(--wb-media-bg);
+}
+
+/* Code blocks inside preview panels: the pipeline emits rehype-highlight
+   markup; highlightThemeCss (injected once at document level by
+   cm-live-preview-widgets.ts) is a fixed dark scheme, so keep the pre
+   background dark for contrast instead of inheriting the editor surface. */
+.cm-lp-block pre {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--wb-border);
+  border-radius: 8px;
+  background: #172028;
+  overflow: auto;
+}
+
+.cm-lp-block pre code {
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  font-size: 0.92em;
+  background: transparent;
+}
+
+.cm-lp-block code:not(pre code) {
+  padding: 0.18em 0.38em;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  font-size: 0.92em;
+}
+
+/* Floating preview panel (wide editors), positioned absolutely by
+   cm-live-preview-float.ts. Frameless like the below-source previews: no
+   border/background/shadow, just the content; scrolls beyond 40vh. Lives
+   outside CM's height map, so padding/margins here don't affect metrics. */
+.cm-lp-float {
+  position: absolute;
+  max-height: 40vh;
+  overflow: auto;
+  z-index: 5;
+  pointer-events: auto;
+  /* Same break-spaces lesson as .cm-lp-block. */
+  white-space: normal;
+}
+
+.cm-lp-image-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 6px 0;
+  /* See .cm-lp-block: never inherit cm-content's break-spaces. */
+  white-space: normal;
+}
+
+.cm-lp-image {
+  max-width: 100%;
+  max-height: 320px;
+  border: 1px solid var(--wb-border);
+  border-radius: 10px;
+}
+
+.cm-lp-image-placeholder {
+  padding: 16px 20px;
+  border: 1px dashed var(--wb-border);
+  border-radius: 10px;
+  color: var(--wb-foreground-muted);
+}
+
 .preview-group {
   position: relative;
   background: var(--wb-bg-panel);

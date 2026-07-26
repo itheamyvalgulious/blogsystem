@@ -18,7 +18,7 @@ export const editorConveniencePlugin: PluginDefinition = {
     context.registerEditorAction({
       id: "editor.markdown.set_bold",
       title: "Markdown: Toggle Bold",
-      handler({ editor, monaco }) {
+      handler({ editor, services }) {
         const model = editor.getModel();
         const selection = editor.getSelection();
         if (!model || !selection) return false;
@@ -31,7 +31,7 @@ export const editorConveniencePlugin: PluginDefinition = {
         const after = fullText.slice(startOffset + selectedText.length, startOffset + selectedText.length + 2);
 
         if (before === "**" && after === "**") {
-          const removeRange = new monaco.Range(
+          const removeRange = new services.Range(
             selection.startLineNumber,
             selection.startColumn - 2,
             selection.endLineNumber,
@@ -41,7 +41,7 @@ export const editorConveniencePlugin: PluginDefinition = {
             range: removeRange,
             text: selectedText
           }]);
-          editor.setSelection(new monaco.Selection(
+          editor.setSelection(new services.Selection(
             selection.startLineNumber,
             selection.startColumn - 2,
             selection.endLineNumber,
@@ -55,7 +55,7 @@ export const editorConveniencePlugin: PluginDefinition = {
           range: selection,
           text: wrapped
         }]);
-        editor.setSelection(new monaco.Selection(
+        editor.setSelection(new services.Selection(
           selection.startLineNumber,
           selection.startColumn + 2,
           selection.endLineNumber,
@@ -68,7 +68,7 @@ export const editorConveniencePlugin: PluginDefinition = {
     context.registerMarkdownEditorFeature({
       id: "editor-convenience-handlers",
       matches: () => true,
-      onMount(editor, monaco) {
+      onMount(editor, services) {
         const domNode = editor.getDomNode();
         if (!domNode) return;
 
@@ -93,7 +93,7 @@ export const editorConveniencePlugin: PluginDefinition = {
               text: wrapped
             }]);
 
-            editor.setSelection(new monaco.Selection(
+            editor.setSelection(new services.Selection(
               selection.startLineNumber,
               selection.startColumn + 1,
               selection.endLineNumber,
@@ -121,7 +121,7 @@ export const editorConveniencePlugin: PluginDefinition = {
             const prefix = match[1];
             const eol = model.getEOL();
             editor.executeEdits("list-continue", [{
-              range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+              range: new services.Range(position.lineNumber, position.column, position.lineNumber, position.column),
               text: eol + prefix
             }]);
             editor.revealPosition(editor.getPosition()!);

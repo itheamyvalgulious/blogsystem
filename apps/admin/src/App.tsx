@@ -11,6 +11,7 @@ import { LoginView } from "./components/LoginView";
 import {
   api,
   type AdminHomeConfigPayload,
+  type AiCompletionConfigPayload,
   type EditorConfigPayload,
   type MarkdownBlockConfigPayload,
   type ProjectsPayload,
@@ -38,6 +39,12 @@ import {
 } from "./markdown-outline";
 import { builtInPlugins } from "./workbench/builtins";
 import { WorkbenchCommandPalette } from "./workbench/command-palette";
+import type {
+  EditorEngineServices,
+  EditorPosition,
+  WorkbenchEditorHandle,
+  WorkbenchTextModelHandle
+} from "./workbench/editor-engine";
 import {
   FileEntryDialog,
   FolderMetadataDialog,
@@ -71,6 +78,9 @@ import { useEditorIntegration } from "./workbench/hooks/use-editor-integration";
 import { useEditorValueSync } from "./workbench/hooks/use-editor-value-sync";
 import { useFileDialogOperations } from "./workbench/hooks/use-file-dialog-operations";
 import { usePreviewSync } from "./workbench/hooks/use-preview-sync";
+import { parsePreviewSourceForDocument } from "./workbench/preview-utils";
+import { setWorkbenchLivePreviewContext } from "./workbench/codemirror/cm-context";
+import { getPreferredEditorEngine } from "./workbench/codemirror/engine-select";
 import { useUsageStatsTracking } from "./workbench/hooks/use-usage-stats-tracking";
 import { useWorkbenchApi } from "./workbench/hooks/use-workbench-api";
 import { useWorkbenchPersistence } from "./workbench/hooks/use-workbench-persistence";
@@ -131,7 +141,12 @@ export function App() {
     plugins: "plugin-manager"
   });
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [previewVisible, setPreviewVisible] = useState(true);
+  const [previewVisible, setPreviewVisible] = useState(
+    // The CodeMirror "live" engine renders previews inline (live preview
+    // mosaic), so the side preview pane starts hidden there; the Monaco
+    // engine keeps the original default (visible). Ctrl+\ still toggles.
+    () => getPreferredEditorEngine() === "monaco"
+  );
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? 280));
   const [previewWidth, setPreviewWidth] = useState(() => Number(window.localStorage.getItem(PREVIEW_WIDTH_STORAGE_KEY) ?? 420));
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -145,6 +160,7 @@ export function App() {
   const [projectsPayload, setProjectsPayload] = useState<ProjectsPayload | null>(null);
   const [themeGroupsPayload, setThemeGroupsPayload] = useState<ThemeGroupsPayload | null>(null);
   const [publishConfigPayload, setPublishConfigPayload] = useState<PublishConfigPayload | null>(null);
+  const [aiCompletionConfigPayload, setAiCompletionConfigPayload] = useState<AiCompletionConfigPayload | null>(null);
   const [siteConfigPayload, setSiteConfigPayload] = useState<SiteConfigPayload | null>(null);
   const [usageStatsPayload, setUsageStatsPayload] = useState<UsageStatsPayload | null>(null);
   const [documents, setDocuments] = useState<WorkbenchDocument[]>(() => [buildHomeDocument()]);
@@ -208,7 +224,8 @@ export function App() {
   const [textInputDialog, setTextInputDialog] = useState<TextInputDialogState | null>(null);
   const [editorReadyVersion, setEditorReadyVersion] = useState(0);
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<WorkbenchEditorHandle | null>(null);
+  const editorServicesRef = useRef<EditorEngineServices | null>(null);
   const monacoRef = useRef<typeof monacoEditor | null>(null);
   const headingsRef = useRef<CachedHeading[]>([]);
   const mathPairsRef = useRef<MathPair[]>([]);
@@ -248,7 +265,7 @@ export function App() {
   );
 
   const getSnippetLanguageForEditor = useCallback(
-    (model: monacoEditor.editor.ITextModel, position: monacoEditor.Position) => {
+    (model: WorkbenchTextModelHandle, position: EditorPosition) => {
       return getSnippetLanguageFromMathPairs(mathPairsRef.current, position.lineNumber, position.column);
     },
     []
@@ -518,7 +535,7 @@ export function App() {
     };
   }, []);
 
-  const syncEditorValuePreservingView = useEditorValueSync(editorRef);
+  const syncEditorValuePreservingView = useEditorValueSync(editorRef, editorServicesRef);
 
   const {
     activateDocument,
@@ -584,6 +601,20 @@ export function App() {
     setPageError
   });
 
+  // Feed the CM live preview (module singleton, read lazily at decoration /
+  // widget render time) with the same data sources as the preview pane:
+  // article directory for image URL resolution, active fence renderers and
+  // the markdown block config.
+  useEffect(() => {
+    setWorkbenchLivePreviewContext({
+      articleDirectory: activeDocument
+        ? parsePreviewSourceForDocument(activeDocument, "")?.directory ?? null
+        : null,
+      fenceRenderers: activePreviewFenceRenderers,
+      markdownBlockConfig: markdownBlockConfigPayload?.value ?? null
+    });
+  }, [activeDocument, activePreviewFenceRenderers, markdownBlockConfigPayload]);
+
   const jumpToActiveArticleLineImpl = useCallback(
     (lineNumber: number, options?: RevealLineOptions) => {
       if (!isArticleDocument(activeDocument)) {
@@ -591,8 +622,9 @@ export function App() {
       }
 
       const editor = editorRef.current;
+      const services = editorServicesRef.current;
       const model = editor?.getModel();
-      if (!editor || !model) {
+      if (!editor || !services || !model) {
         return;
       }
 
@@ -611,7 +643,7 @@ export function App() {
       const shouldFocus = options?.focus ?? true;
 
       if (shouldMoveCursor) {
-        const selection = new monacoEditor.Selection(
+        const selection = new services.Selection(
           nextLineNumber,
           nextColumn,
           nextLineNumber,
@@ -652,6 +684,7 @@ export function App() {
 
   const {
     adminHomeSaveTimerRef,
+    loadAiCompletionConfig,
     loadConfig,
     loadMarkdownBlockConfig,
     loadProjects,
@@ -671,6 +704,7 @@ export function App() {
     draftValuesRef,
     schedulePreviewSourceUpdate,
     setAdminHomePayload,
+    setAiCompletionConfigPayload,
     setConfigPayload,
     setDocuments,
     setMarkdownBlockConfigPayload,
@@ -695,10 +729,12 @@ export function App() {
   } = useDocumentOpeners({
     activateDocument,
     activeDocument,
+    aiCompletionConfigPayload,
     configPayload,
     documents,
     draftValuesRef,
     jumpToActiveArticleLine,
+    loadAiCompletionConfig,
     loadConfig,
     loadMarkdownBlockConfig,
     loadPublishConfig,
@@ -726,6 +762,7 @@ export function App() {
     articleCursorStatesRef,
     editorReadyVersion,
     editorRef,
+    editorServicesRef,
     getSnippetLanguageForEditor,
     headingsRef,
     jumpToActiveArticleLine,
@@ -805,6 +842,7 @@ export function App() {
 
   const { saveActiveDocument } = useDocumentSavers({
     activeDocument,
+    aiCompletionConfigPayload,
     cancelPendingDirtyCheck,
     configPayload,
     documents,
@@ -820,6 +858,7 @@ export function App() {
     refreshThemeGroupsPayload,
     schedulePreviewSourceUpdate,
     setActiveDocumentId,
+    setAiCompletionConfigPayload,
     setBusyMessage,
     setConfigPayload,
     setDocuments,
@@ -866,6 +905,7 @@ export function App() {
     activeDocument,
     draftValuesRef,
     editorRef,
+    editorServicesRef,
     flushDocumentDraft,
     groupedPanes,
     hasDirtyArticleDocument,

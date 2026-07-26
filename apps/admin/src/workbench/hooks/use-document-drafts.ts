@@ -1,5 +1,6 @@
 import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type * as monacoEditor from "monaco-editor";
+
+import type { WorkbenchEditorHandle } from "../editor-engine";
 
 import {
   canReadFullDocumentValueFromEditor
@@ -17,7 +18,7 @@ interface DocumentDraftsOptions {
   dirtyDocumentIdsRef: RefObject<Set<string>>;
   draftValuesRef: RefObject<Record<string, string>>;
   draftValueSyncTimerRef: RefObject<number | null>;
-  editorRef: RefObject<monacoEditor.editor.IStandaloneCodeEditor | null>;
+  editorRef: RefObject<WorkbenchEditorHandle | null>;
   pluginRuntime: PluginRuntime;
   setActiveDocumentId: Dispatch<SetStateAction<string | null>>;
   setDocuments: Dispatch<SetStateAction<WorkbenchDocument[]>>;

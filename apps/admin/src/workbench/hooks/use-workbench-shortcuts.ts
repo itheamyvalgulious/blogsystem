@@ -1,5 +1,10 @@
 import { useEffect, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type * as monacoEditor from "monaco-editor";
+
+import type {
+  EditorPosition,
+  WorkbenchEditorHandle,
+  WorkbenchTextModelHandle
+} from "../editor-engine";
 
 import type { FileSystemNode } from "@blog-system/content-core";
 
@@ -52,10 +57,10 @@ interface WorkbenchShortcutsOptions {
   commandPaletteOpen: boolean;
   documents: WorkbenchDocument[];
   draftValuesRef: RefObject<Record<string, string>>;
-  editorRef: RefObject<monacoEditor.editor.IStandaloneCodeEditor | null>;
+  editorRef: RefObject<WorkbenchEditorHandle | null>;
   getSnippetLanguageForEditor: (
-    model: monacoEditor.editor.ITextModel,
-    position: monacoEditor.Position
+    model: WorkbenchTextModelHandle,
+    position: EditorPosition
   ) => SnippetLanguageId;
   loadTree: () => Promise<TreePayload>;
   normalizedConfig: NormalizedEditorConfig;

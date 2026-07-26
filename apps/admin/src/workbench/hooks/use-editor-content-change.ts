@@ -1,6 +1,10 @@
 import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
 import GithubSlugger from "github-slugger";
-import * as monacoEditor from "monaco-editor";
+
+import type {
+  EditorContentChangedEvent,
+  WorkbenchEditorHandle
+} from "../editor-engine";
 
 import {
   scanDocumentMathPairs,
@@ -23,7 +27,7 @@ interface EditorContentChangeOptions {
   activeDocumentSupportsPreview: boolean;
   dirtyDocumentIdsRef: RefObject<Set<string>>;
   draftValuesRef: RefObject<Record<string, string>>;
-  editorRef: RefObject<monacoEditor.editor.IStandaloneCodeEditor | null>;
+  editorRef: RefObject<WorkbenchEditorHandle | null>;
   headingsRef: RefObject<CachedHeading[]>;
   markUsageActivity: () => void;
   mathPairsRef: RefObject<MathPair[]>;
@@ -107,7 +111,7 @@ export function useEditorContentChange({
   );
 
   const handleEditorModelContentChange = useCallback(
-    (event: monacoEditor.editor.IModelContentChangedEvent) => {
+    (event: EditorContentChangedEvent) => {
       if (!activeDocument || shouldStoreLiveDocumentValue(activeDocument)) {
         return;
       }

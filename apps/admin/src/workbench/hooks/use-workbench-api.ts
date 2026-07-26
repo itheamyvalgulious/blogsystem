@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, type Dispatch, type RefObject, type SetStateAction } from "react";
-import * as monacoEditor from "monaco-editor";
 
+import type { EditorEngineServices, WorkbenchEditorHandle } from "../editor-engine";
 import { getErrorMessage } from "@blog-system/content-core";
 
 import {
@@ -33,7 +33,8 @@ interface WorkbenchApiOptions {
   activateDocument: (nextDocumentIdOrUpdater: SetStateAction<string | null>) => void;
   activeDocument: WorkbenchDocument | null;
   draftValuesRef: RefObject<Record<string, string>>;
-  editorRef: RefObject<monacoEditor.editor.IStandaloneCodeEditor | null>;
+  editorRef: RefObject<WorkbenchEditorHandle | null>;
+  editorServicesRef: RefObject<EditorEngineServices | null>;
   flushDocumentDraft: (document?: WorkbenchDocument | null) => string | null;
   groupedPanes: Record<string, SidebarPaneItem[]>;
   hasDirtyArticleDocument: () => boolean;
@@ -66,6 +67,7 @@ export function useWorkbenchApi({
   activeDocument,
   draftValuesRef,
   editorRef,
+  editorServicesRef,
   flushDocumentDraft,
   groupedPanes,
   hasDirtyArticleDocument,
@@ -117,13 +119,14 @@ export function useWorkbenchApi({
 
   const revealLine = useCallback((lineNumber: number, options?: RevealLineOptions) => {
     const editor = editorRef.current;
-    if (!editor) {
+    const services = editorServicesRef.current;
+    if (!editor || !services) {
       return;
     }
 
     editor.revealLineInCenter(lineNumber);
     if (options?.moveCursor ?? true) {
-      const selection = new monacoEditor.Selection(
+      const selection = new services.Selection(
         lineNumber,
         options?.column ?? 1,
         lineNumber,

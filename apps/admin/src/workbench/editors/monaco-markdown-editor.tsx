@@ -1,14 +1,24 @@
 import Editor from "@monaco-editor/react";
 import type * as monacoEditor from "monaco-editor";
 
+import type {
+  EditorContentChangedEvent,
+  EditorEngineServices,
+  WorkbenchEditorHandle
+} from "../editor-engine";
+import {
+  createMonacoEditorHandle,
+  createMonacoEngineServices
+} from "./monaco-engine-adapter";
+
 interface MonacoMarkdownEditorProps {
   editorKey?: string;
   language?: string;
   onChange: (nextValue: string) => void;
-  onModelContentChange?: (event: monacoEditor.editor.IModelContentChangedEvent) => void;
+  onModelContentChange?: (event: EditorContentChangedEvent) => void;
   onMount: (
-    editor: monacoEditor.editor.IStandaloneCodeEditor,
-    monaco: typeof monacoEditor
+    editor: WorkbenchEditorHandle,
+    services: EditorEngineServices
   ) => void;
   path: string;
   value: string;
@@ -33,7 +43,7 @@ export function MonacoMarkdownEditor({
         const disposable = onModelContentChange
           ? editor.onDidChangeModelContent(onModelContentChange)
           : null;
-        onMount(editor, monaco);
+        onMount(createMonacoEditorHandle(editor, monaco), createMonacoEngineServices(monaco));
         if (disposable) {
           editor.onDidDispose(() => {
             disposable.dispose();

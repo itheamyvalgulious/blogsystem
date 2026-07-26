@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   matchesSnippetScope,
+  normalizeAiCompletionConfig,
   parseJsoncConfig,
   parseSnippetConfigValue,
   serializeKeybindingConfig,
@@ -103,4 +104,66 @@ test("parseSnippetConfigValue rejects object snippets that are not objects", () 
     () => parseSnippetConfigValue({ broken: { prefix: "x" } }),
     /Snippet "broken" body must be a string or an array of strings\./
   );
+});
+
+test("normalizeAiCompletionConfig fills defaults for missing fields", () => {
+  assert.deepEqual(normalizeAiCompletionConfig(undefined), {
+    enabled: false,
+    baseUrl: "https://api.openai.com/v1",
+    model: "",
+    maxTokens: 128,
+    temperature: 0.2
+  });
+
+  assert.deepEqual(normalizeAiCompletionConfig({ enabled: true, model: "demo" }), {
+    enabled: true,
+    baseUrl: "https://api.openai.com/v1",
+    model: "demo",
+    maxTokens: 128,
+    temperature: 0.2
+  });
+});
+
+test("normalizeAiCompletionConfig drops fields with the wrong type", () => {
+  const normalized = normalizeAiCompletionConfig({
+    enabled: "yes",
+    baseUrl: 42,
+    model: null,
+    apiKey: 7,
+    provider: "gpt",
+    maxTokens: "64",
+    temperature: "hot"
+  });
+
+  assert.deepEqual(normalized, {
+    enabled: false,
+    baseUrl: "https://api.openai.com/v1",
+    model: "",
+    maxTokens: 128,
+    temperature: 0.2
+  });
+  assert.equal("apiKey" in normalized, false);
+  assert.equal("provider" in normalized, false);
+});
+
+test("normalizeAiCompletionConfig keeps well-typed optional fields", () => {
+  const normalized = normalizeAiCompletionConfig({
+    enabled: true,
+    baseUrl: "https://llm.example.com/v1",
+    model: "demo-model",
+    apiKey: "sk-test",
+    provider: "anthropic",
+    maxTokens: 32,
+    temperature: 0.5
+  });
+
+  assert.deepEqual(normalized, {
+    enabled: true,
+    baseUrl: "https://llm.example.com/v1",
+    model: "demo-model",
+    apiKey: "sk-test",
+    provider: "anthropic",
+    maxTokens: 32,
+    temperature: 0.5
+  });
 });

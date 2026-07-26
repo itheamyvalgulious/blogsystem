@@ -1,5 +1,6 @@
 import type {
   AdminHomeConfig,
+  AiCompletionConfig,
   ArticleRecord,
   ArticleSummary,
   ContentTreeNode,
@@ -175,6 +176,16 @@ export interface PublishConfigPayload {
 export interface MarkdownBlockConfigPayload {
   raw: string;
   value: MarkdownBlockConfig;
+}
+
+export interface AiCompletionConfigPayload {
+  raw: string;
+  value: AiCompletionConfig;
+  status: {
+    enabled: boolean;
+    model: string;
+    baseUrl: string;
+  };
 }
 
 export interface ThemeGroupsPayload {
@@ -360,6 +371,21 @@ export const api = {
     return request<PublishConfigPayload>("/api/publish-config", {
       method: "PUT",
       body: JSON.stringify({ raw })
+    });
+  },
+  getAiCompletionConfig() {
+    return request<AiCompletionConfigPayload>("/api/ai/completion-config");
+  },
+  saveAiCompletionConfig(raw: string) {
+    return request<AiCompletionConfigPayload>("/api/ai/completion-config", {
+      method: "PUT",
+      body: JSON.stringify({ raw })
+    });
+  },
+  requestAiInlineCompletion(input: { prefix: string; suffix: string; language: "markdown" | "latex" }) {
+    return request<{ completion: string }>("/api/ai/completion", {
+      method: "POST",
+      body: JSON.stringify(input)
     });
   },
   getMarkdownBlockConfig() {

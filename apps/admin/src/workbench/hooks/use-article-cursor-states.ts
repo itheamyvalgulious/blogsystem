@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type * as monacoEditor from "monaco-editor";
+
+import type { WorkbenchEditorHandle } from "../editor-engine";
 
 import {
   ARTICLE_CURSOR_STATE_STORAGE_KEY,
@@ -10,7 +11,7 @@ import {
 } from "../article-cursor-state";
 
 interface ArticleCursorStatesOptions {
-  editorRef: RefObject<monacoEditor.editor.IStandaloneCodeEditor | null>;
+  editorRef: RefObject<WorkbenchEditorHandle | null>;
   setActiveArticleLineNumber: Dispatch<SetStateAction<number | null>>;
 }
 

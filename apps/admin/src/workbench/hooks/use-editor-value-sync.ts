@@ -1,14 +1,17 @@
 import { useCallback, type RefObject } from "react";
-import * as monacoEditor from "monaco-editor";
+
+import type { EditorEngineServices, WorkbenchEditorHandle } from "../editor-engine";
 
 export function useEditorValueSync(
-  editorRef: RefObject<monacoEditor.editor.IStandaloneCodeEditor | null>
+  editorRef: RefObject<WorkbenchEditorHandle | null>,
+  editorServicesRef: RefObject<EditorEngineServices | null>
 ) {
   const syncEditorValuePreservingView = useCallback((nextValue: string) => {
     const editor = editorRef.current;
+    const services = editorServicesRef.current;
     const model = editor?.getModel();
 
-    if (!editor || !model || model.getValue() === nextValue) {
+    if (!editor || !services || !model || model.getValue() === nextValue) {
       return;
     }
 
@@ -43,7 +46,7 @@ export function useEditorValueSync(
           );
           const nextPosition = nextModel.getPositionAt(Math.min(positionOffset, nextValue.length));
 
-          return new monacoEditor.Selection(
+          return new services.Selection(
             nextSelectionStart.lineNumber,
             nextSelectionStart.column,
             nextPosition.lineNumber,

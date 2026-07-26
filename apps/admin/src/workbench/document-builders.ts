@@ -1,6 +1,7 @@
 import type { ArticleRecord } from "@blog-system/content-core";
 
 import type {
+  AiCompletionConfigPayload,
   EditorConfigPayload,
   MarkdownBlockConfigPayload,
   ProjectLogPayload,
@@ -34,7 +35,7 @@ import type {
 export const HOME_DOCUMENT_ID = "home:dashboard";
 export const USAGE_STATS_DOCUMENT_ID = "usage-stats:overview";
 
-export const CONFIG_DOCUMENT_META: Record<Exclude<ConfigDocumentKind, "markdownBlockConfig" | "publishConfig" | "siteConfig">, { title: string; path: string; read: (payload: EditorConfigPayload) => string }> = {
+export const CONFIG_DOCUMENT_META: Record<Exclude<ConfigDocumentKind, "aiCompletion" | "markdownBlockConfig" | "publishConfig" | "siteConfig">, { title: string; path: string; read: (payload: EditorConfigPayload) => string }> = {
   editorAssociations: {
     title: "editor.associations.json",
     path: "config/editor.associations.json",
@@ -72,12 +73,19 @@ const PUBLISH_CONFIG_DOCUMENT_META = {
   path: "config/site-publish.local.json"
 } as const;
 
+const AI_COMPLETION_CONFIG_DOCUMENT_META = {
+  title: "ai-completion.local.json",
+  path: "config/ai-completion.local.json"
+} as const;
+
 export function getThemeAssetDocumentPath(groupId: string, fileName: string) {
   return `config/theme/${groupId}/${fileName}`;
 }
 
 export function getConfigDocumentPath(kind: ConfigDocumentKind) {
   switch (kind) {
+    case "aiCompletion":
+      return AI_COMPLETION_CONFIG_DOCUMENT_META.path;
     case "markdownBlockConfig":
       return MARKDOWN_BLOCK_CONFIG_DOCUMENT_META.path;
     case "publishConfig":
@@ -91,6 +99,8 @@ export function getConfigDocumentPath(kind: ConfigDocumentKind) {
 
 export function getConfigDocumentTitle(kind: ConfigDocumentKind) {
   switch (kind) {
+    case "aiCompletion":
+      return AI_COMPLETION_CONFIG_DOCUMENT_META.title;
     case "markdownBlockConfig":
       return MARKDOWN_BLOCK_CONFIG_DOCUMENT_META.title;
     case "publishConfig":
@@ -109,7 +119,8 @@ export function getJsonSchemaPaths() {
     keybindingsPath: CONFIG_DOCUMENT_META.keybindings.path,
     editorAssociationsPath: CONFIG_DOCUMENT_META.editorAssociations.path,
     markdownBlockConfigPath: MARKDOWN_BLOCK_CONFIG_DOCUMENT_META.path,
-    siteConfigPath: SITE_CONFIG_DOCUMENT_META.path
+    siteConfigPath: SITE_CONFIG_DOCUMENT_META.path,
+    aiCompletionConfigPath: AI_COMPLETION_CONFIG_DOCUMENT_META.path
   };
 }
 
@@ -193,13 +204,16 @@ export function isMarkdownCompletionDocument(document: WorkbenchDocument | null)
 export function buildConfigDocument(
   kind: ConfigDocumentKind,
   payload:
+    | AiCompletionConfigPayload
     | EditorConfigPayload
     | MarkdownBlockConfigPayload
     | PublishConfigPayload
     | SiteConfigPayload
 ): ConfigWorkbenchDocument {
   const value =
-    kind === "markdownBlockConfig"
+    kind === "aiCompletion"
+      ? (payload as AiCompletionConfigPayload).raw
+      : kind === "markdownBlockConfig"
       ? (payload as MarkdownBlockConfigPayload).raw
       : kind === "publishConfig"
       ? (payload as PublishConfigPayload).raw

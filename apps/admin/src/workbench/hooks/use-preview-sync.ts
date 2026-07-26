@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type * as monacoEditor from "monaco-editor";
+
+import type { WorkbenchEditorHandle } from "../editor-engine";
 
 import {
   renderMarkdownFragmentWithKatex,
@@ -34,7 +35,7 @@ interface PreviewSyncOptions {
   activePreviewFenceRenderers: MarkdownFenceRendererFeatureDefinition[];
   draftValuesRef: RefObject<Record<string, string>>;
   editorReadyVersion: number;
-  editorRef: RefObject<monacoEditor.editor.IStandaloneCodeEditor | null>;
+  editorRef: RefObject<WorkbenchEditorHandle | null>;
   jumpToActiveArticleLine: (lineNumber: number, options?: RevealLineOptions) => void;
   markdownBlockConfigPayload: MarkdownBlockConfigPayload | null;
   pluginRuntime: PluginRuntime;

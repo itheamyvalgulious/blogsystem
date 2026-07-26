@@ -1,5 +1,10 @@
 import type { ComponentType } from "react";
 import type * as monacoEditor from "monaco-editor";
+import type {
+  EditorContentChangedEvent,
+  EditorEngineServices,
+  WorkbenchEditorHandle
+} from "./editor-engine";
 import type { SnippetCompletionMatch } from "../snippet-completion";
 import type { MarkdownOutlineItem } from "../markdown-outline";
 
@@ -23,6 +28,7 @@ import type {
 
 export type PaneGroupId = string;
 export type ConfigDocumentKind =
+  | "aiCompletion"
   | "markdownBlockConfig"
   | "markdownSnippets"
   | "latexSnippets"
@@ -35,6 +41,7 @@ export type WorkbenchEditorId = string;
 export type SnippetLanguageId = "markdown" | "latex";
 export type WorkbenchRefreshTarget =
   | "adminHome"
+  | "aiCompletion"
   | "config"
   | "markdownBlockConfig"
   | "publishConfig"
@@ -231,10 +238,10 @@ export interface WorkbenchEditorComponentProps {
   homeWidgets: HomeWidgetContributionDefinition[];
   onChange: (nextValue: string) => void;
   onChangeHomeConfig: (nextValue: AdminHomeConfig) => void;
-  onModelContentChange?: (event: monacoEditor.editor.IModelContentChangedEvent) => void;
+  onModelContentChange?: (event: EditorContentChangedEvent) => void;
   onMount: (
-    editor: monacoEditor.editor.IStandaloneCodeEditor,
-    monaco: typeof monacoEditor
+    editor: WorkbenchEditorHandle,
+    services: EditorEngineServices
   ) => void;
   path: string;
   value: string;
@@ -260,8 +267,8 @@ export interface MarkdownEditorFeatureDefinition {
   id: string;
   matches: (document: WorkbenchDocument) => boolean;
   onMount?: (
-    editor: monacoEditor.editor.IStandaloneCodeEditor,
-    monaco: typeof monacoEditor,
+    editor: WorkbenchEditorHandle,
+    services: EditorEngineServices,
     document: WorkbenchDocument
   ) => void | (() => void);
 }
@@ -354,14 +361,14 @@ export interface WorkbenchApi {
 export interface EditorActionApi {
   activeDocument: WorkbenchDocument | null;
   activeSnippetMatches: SnippetCompletionMatch[];
-  editor: monacoEditor.editor.IStandaloneCodeEditor;
-  monaco: typeof monacoEditor;
+  editor: WorkbenchEditorHandle;
+  services: EditorEngineServices;
   snippets: EditorSnippet[];
 }
 
 export interface PasteHandlerApi {
   activeDocument: WorkbenchDocument | null;
-  editor: monacoEditor.editor.IStandaloneCodeEditor;
+  editor: WorkbenchEditorHandle;
   event: ClipboardEvent;
   uploadClipboardImages: (
     target: ClipboardImageUploadTarget,

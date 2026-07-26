@@ -17,6 +17,7 @@ import {
   SIDEBAR_WIDTH_STORAGE_KEY,
   THEME_STORAGE_KEY
 } from "../storage-keys";
+import { applyCmTheme, defineCmTheme } from "../codemirror/cm-theme";
 import type {
   ThemeDefinition,
   WorkbenchApi,
@@ -138,6 +139,10 @@ export function useWorkbenchPersistence({
     Object.entries(activeTheme.cssVariables).forEach(([key, value]) => document.documentElement.style.setProperty(key, value));
     monacoEditor.editor.defineTheme(activeTheme.id, activeTheme.monacoTheme);
     monacoEditor.editor.setTheme(activeTheme.id);
+    // CodeMirror engine theme (parallel to the Monaco calls above): build and
+    // register the converted theme, then activate it in all live CM views.
+    defineCmTheme(activeTheme);
+    applyCmTheme(activeTheme.id);
   }, [activeTheme]);
 
   useEffect(() => {

@@ -8,7 +8,7 @@ export const snippetActionsPlugin: PluginDefinition = {
     context.registerEditorAction({
       id: "editor.expandMatchingSnippet",
       title: "Editor: Expand Matching Snippet",
-      handler({ activeSnippetMatches, editor, monaco, activeDocument }) {
+      handler({ activeSnippetMatches, editor, services, activeDocument }) {
         if (
           !activeDocument ||
           (activeDocument.kind !== "article" &&
@@ -26,7 +26,7 @@ export const snippetActionsPlugin: PluginDefinition = {
         }
 
         const linePrefix = model.getValueInRange(
-          new monaco.Range(position.lineNumber, 1, position.lineNumber, position.column)
+          new services.Range(position.lineNumber, 1, position.lineNumber, position.column)
         );
         const matchedEntry = activeSnippetMatches
           .filter(
@@ -39,7 +39,7 @@ export const snippetActionsPlugin: PluginDefinition = {
           return false;
         }
 
-        const range = new monaco.Range(
+        const range = new services.Range(
           position.lineNumber,
           position.column - matchedEntry.prefix.length,
           position.lineNumber,
@@ -47,9 +47,7 @@ export const snippetActionsPlugin: PluginDefinition = {
         );
 
         editor.setSelection(range);
-        const controller = editor.getContribution("snippetController2") as {
-          insert: (template: string) => void;
-        } | null;
+        const controller = editor.getContribution("snippetController2");
 
         if (!controller) {
           return false;
