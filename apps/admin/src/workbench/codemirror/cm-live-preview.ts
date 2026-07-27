@@ -1307,6 +1307,68 @@ function makeInlineMathGroup(formulas: LivePreviewInlineMathFormula[]): LivePrev
   };
 }
 
+// --- Visual-row wrap ends (band anchors) -------------------------------------
+
+/**
+ * Binary search for the natural end (wrap point) of a visual row: the
+ * smallest position in `(from, to]` whose measured top is more than
+ * `tolerance` below `rowTop` — i.e. the first position on the NEXT visual
+ * row. Returns `to` when the row does not wrap (nothing below inside the
+ * line). `topFor` is injected so the search stays pure/headless; positions
+ * that cannot be measured (null) count as "not below" and skew the search
+ * right. Unit-tested.
+ */
+export function findVisualRowWrapEnd(
+  from: number,
+  to: number,
+  rowTop: number,
+  topFor: (pos: number) => number | null,
+  tolerance = 2
+): number {
+  let lo = from;
+  let hi = to;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >>> 1;
+    const top = topFor(mid);
+    if (top !== null && top > rowTop + tolerance) {
+      hi = mid;
+    } else {
+      lo = mid;
+    }
+  }
+  const topAtHi = topFor(hi);
+  return topAtHi !== null && topAtHi > rowTop + tolerance ? hi : to;
+}
+
+/** Exported for headless tests. */
+export const setInlineMathWrapEnds = StateEffect.define<ReadonlyMap<number, number>>();
+
+/**
+ * Formula start offset → measured wrap end of its visual row (see
+ * findVisualRowWrapEnd), covering the viewport plus a buffer. Drives band
+ * anchors; mapped through document changes so bands stay near-correct while
+ * typing, and rewritten by the measure plugin after its debounce (same
+ * write/discipline as the tops field). Exported for headless tests.
+ */
+export const livePreviewInlineMathWrapEndsField = StateField.define<ReadonlyMap<number, number>>({
+  create: () => new Map(),
+  update(value, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setInlineMathWrapEnds)) {
+        return effect.value;
+      }
+    }
+    if (tr.docChanged && value.size > 0) {
+      const mapped = new Map<number, number>();
+      for (const [from, wrapEnd] of value) {
+        mapped.set(tr.changes.mapPos(from, 1), tr.changes.mapPos(wrapEnd, 1));
+      }
+      return mapped;
+    }
+    return value;
+  }
+});
+
 /** Exported for headless tests. */
 export const setInlineMathVisualTops = StateEffect.define<ReadonlyMap<number, number>>();
 
@@ -1333,6 +1395,26 @@ export const livePreviewInlineMathVisualTopsField = StateField.define<ReadonlyMa
 const VISUAL_TOPS_BUFFER_CHARS = 1500;
 
 /**
+ * Whether an update should schedule an inline-math measurement pass.
+ * docChanged/viewport/geometry are the classic triggers; `selection` and
+ * decoration rebuilds matter just as much in read mode, where moving the
+ * cursor into a formula EXPANDS its source — the layout (and thus every
+ * wrap end) differs from the collapsed KaTeX rendering it replaces.
+ * Without those triggers the first entry kept anchors measured against the
+ * collapsed layout (or the unmeasured fallback) until some unrelated
+ * geometry change happened. Unit-tested with fake updates.
+ */
+export function shouldScheduleInlineMathMeasure(update: ViewUpdate): boolean {
+  return (
+    update.docChanged ||
+    update.viewportChanged ||
+    update.geometryChanged ||
+    update.selectionSet ||
+    update.state.field(livePreviewDecorationsField) !== update.startState.field(livePreviewDecorationsField)
+  );
+}
+
+/**
  * Measures inline formulas' visual tops (coordsAtPos in the measure read
  * phase — layout reads are forbidden inside the update cycle) and reports
  * them into livePreviewInlineMathVisualTopsField via a deferred dispatch
@@ -1347,14 +1429,14 @@ const inlineMathVisualMeasurePlugin = ViewPlugin.fromClass(
   class {
     private dispatchTimer: ReturnType<typeof setTimeout> | null = null;
     private measureTimer: ReturnType<typeof setTimeout> | null = null;
-    private pending: { tops: ReadonlyMap<number, number> } | null = null;
+    private pending: { tops: ReadonlyMap<number, number>; wrapEnds: ReadonlyMap<number, number> } | null = null;
 
     constructor(private readonly view: EditorView) {
       this.scheduleMeasure();
     }
 
     update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+      if (shouldScheduleInlineMathMeasure(update)) {
         this.scheduleMeasure();
       }
     }
@@ -1391,7 +1473,10 @@ const inlineMathVisualMeasurePlugin = ViewPlugin.fromClass(
           const scan = getLivePreviewDocumentScan(state.doc);
           const viewportFrom = Math.max(0, view.viewport.from - VISUAL_TOPS_BUFFER_CHARS);
           const viewportTo = Math.min(state.doc.length, view.viewport.to + VISUAL_TOPS_BUFFER_CHARS);
+          const reading = getReadingMode() === "read";
+          const head = state.selection.main.head;
           const tops = new Map<number, number>();
+          const wrapEnds = new Map<number, number>();
           for (const range of scan.ranges) {
             if (range.from > viewportTo) {
               break; // ranges are sorted by `from`
@@ -1403,14 +1488,36 @@ const inlineMathVisualMeasurePlugin = ViewPlugin.fromClass(
               continue;
             }
             for (const formula of range.formulas) {
+              // In read mode an out-of-region formula is an inline KaTeX
+              // replacement — compact, not the source. Geometry measured on
+              // THAT layout is meaningless for banding (it produced the
+              // stale line-end anchor on first entry), so it is left out
+              // entirely: the builder hides the band until a measurement
+              // against the expanded source exists.
+              if (reading && !isInCursorRegion(formula.from - 1, formula.to + 1, head)) {
+                continue;
+              }
               const coords = view.coordsAtPos(formula.from);
               if (!coords) {
                 continue;
               }
               tops.set(formula.from, Math.round(coords.top));
+              // Wrap end of the formula's visual row: binary search the
+              // first position on a lower row (see findVisualRowWrapEnd).
+              // Domain starts at the formula START, not its end — a long
+              // formula may itself span the wrap. With the band anchored at
+              // the natural wrap end this measurement is a fixed point (the
+              // band's own row is skipped by the > tolerance comparison);
+              // with no band or a late (line-end) anchor every row in
+              // between is uncontaminated, so it self-corrects.
+              const line = state.doc.lineAt(formula.from);
+              wrapEnds.set(
+                formula.from,
+                findVisualRowWrapEnd(formula.from, line.to, coords.top, (pos) => view.coordsAtPos(pos)?.top ?? null)
+              );
             }
           }
-          return { tops };
+          return { tops, wrapEnds };
         },
         write: (measured) => {
           this.pending = measured;
@@ -1433,11 +1540,12 @@ const inlineMathVisualMeasurePlugin = ViewPlugin.fromClass(
         const mapEquals = (a: ReadonlyMap<number, number>, b: ReadonlyMap<number, number>) =>
           a.size === b.size && [...a].every(([key, value]) => b.get(key) === value);
         const currentTops = view.state.field(livePreviewInlineMathVisualTopsField);
-        if (mapEquals(currentTops, next.tops)) {
+        const currentWrapEnds = view.state.field(livePreviewInlineMathWrapEndsField);
+        if (mapEquals(currentTops, next.tops) && mapEquals(currentWrapEnds, next.wrapEnds)) {
           return;
         }
         view.dispatch({
-          effects: setInlineMathVisualTops.of(next.tops)
+          effects: [setInlineMathVisualTops.of(next.tops), setInlineMathWrapEnds.of(next.wrapEnds)]
         });
       }, 0);
     }
@@ -1624,6 +1732,7 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
   const failedHashes = state.field(livePreviewFailedRenderHashesField);
   const belowKeys = state.field(livePreviewBelowKeysField);
   const visualTops = state.field(livePreviewInlineMathVisualTopsField);
+  const wrapEnds = state.field(livePreviewInlineMathWrapEndsField);
   const floatMode = getLivePreviewLayoutMode() === "float";
   const reading = getReadingMode() === "read";
 
@@ -1678,18 +1787,30 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
   );
   for (const group of inlineMathGroups) {
     const key = `im:${salt}:${contentHash(group.formulas.map((formula) => formula.tex).join("\n"))}`;
-    // R3: INLINE (non-block) widget anchored at the group's last formula
-    // end. The band's DOM is an inline-level full-width box
+    // R3+: INLINE (non-block) widget anchored at the NATURAL END (wrap
+    // point) of the formula group's visual row — measured by the plugin
+    // above into livePreviewInlineMathWrapEndsField (the last formula's
+    // row: tops grouping guarantees one row per measured group). The
+    // band's DOM is an inline-level full-width box
     // (display: inline-block; width: 100% — see .cm-lp-inline-math-row), so
-    // it never fits the current line box's remaining space and wraps onto
-    // its own line box directly under the formula's visual segment,
-    // pushing the following text down (`ab$c$de` → `ab$c$` / band / `de`).
-    // CM measures its height as ordinary inline content — there is no
-    // block-widget height accounting — and vertical cursor motion takes
-    // the native multi-segment path. Do NOT re-add `block: true`: as a
-    // mid-line block widget CM's height map hid the fragment's first row
-    // under a phantom line height, which made ArrowUp/Down skip a row
-    // until the next full reload (see cm-live-preview-widgets.ts).
+    // it wraps onto its own line box exactly where the text itself would
+    // break — text before the anchor is laid out UNCHANGED (the
+    // no-layout-change invariant: `ab$c$def` keeps its full first row, the
+    // band sits below it; `ab$c$折行def` shows `ab$c$` / band / `def`
+    // exactly as the natural wrap). CM measures band height as ordinary
+    // inline content — there is no block-widget height accounting — and
+    // vertical cursor motion takes the native multi-segment path. Do NOT
+    // re-add `block: true` (mid-line block widgets desynced CM's height
+    // map — see cm-live-preview-widgets.ts), and do NOT anchor at the
+    // formula end: that forced a break mid-row, which is exactly the
+    // regression this fixes.
+    //
+    // NO band until the wrap end has been measured against the EXPANDED
+    // source ("宁缺毋错"): an unmeasured row renders without a band for
+    // one debounce window (~120ms) rather than flashing at the line-end
+    // fallback or, worse, at the formula end (which would split the row
+    // and let the next measurement lock the wrong anchor in — the layout
+    // stays clean, so measurement always lands on the natural wrap end).
     //
     // side: -1 (cursor association): the anchor offset doubles as both the
     // band's position and the first text position of the row after the
@@ -1699,6 +1820,11 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
     // press (observed at 880px). side: -1 makes the caret land on the
     // downstream (after-band) side instead, and every visual row stays
     // reachable step by step. Visual placement is identical either way.
+    const lastFormula = group.formulas[group.formulas.length - 1];
+    const wrapEnd = wrapEnds.get(lastFormula.from);
+    if (wrapEnd === undefined) {
+      continue;
+    }
     decorations.push(
       Decoration.widget({
         widget: createInlineMathRowWidget(
@@ -1706,7 +1832,7 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
           group.formulas.map((formula) => ({ from: formula.from, tex: formula.tex }))
         ),
         side: -1
-      }).range(group.to)
+      }).range(wrapEnd)
     );
   }
 
@@ -1784,6 +1910,7 @@ export const livePreviewDecorationsField = StateField.define<LivePreviewDecorati
         effect.is(refreshLivePreview) ||
         effect.is(setLivePreviewBelowKeys) ||
         effect.is(setInlineMathVisualTops) ||
+        effect.is(setInlineMathWrapEnds) ||
         effect.is(readingModeRefresh)
     );
     // tr.selection: reading mode expands/collapses constructs as the cursor
@@ -1827,6 +1954,7 @@ export const cmLivePreview: Extension = [
   livePreviewFailedRenderHashesField,
   livePreviewBelowKeysField,
   livePreviewInlineMathVisualTopsField,
+  livePreviewInlineMathWrapEndsField,
   livePreviewDecorationsField,
   EditorView.decorations.compute([livePreviewDecorationsField], (state) =>
     state.field(livePreviewDecorationsField).decorations

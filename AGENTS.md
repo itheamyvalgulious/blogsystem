@@ -13,6 +13,7 @@ npm workspaces monorepo（TypeScript, ESM）。包管理器只用 npm（pnpm 已
 
 ## 常用命令
 
+- `npm run dev` — 开发三件套（server/admin/site,`scripts/dev.mjs`）；dev 专属默认 `HOST`/`BLOG_SYSTEM_ADMIN_HOST` 为 `0.0.0.0`（局域网可调试，显式 env 覆盖；生产默认仍 loopback）。
 - `npm run build` — 全量构建（site 的 cli-build 依赖 `config.json` 指向的 workspace；新机器先 `npm run init-workspace`）。
 - `npm test` — 先构建两个共享包再跑全部测试（node:test + tsx）。
 - `npm run typecheck` — 全仓 `tsc --noEmit`（提交前必须通过）。
@@ -23,6 +24,6 @@ npm workspaces monorepo（TypeScript, ESM）。包管理器只用 npm（pnpm 已
 - 测试脚本 glob 必须加引号：`tsx --test "src/**/*.test.ts"`（POSIX sh 会错误展开 `**`）。
 - 禁止 `@ts-ignore`/`@ts-nocheck`；vendored/第三方模块用 ambient d.ts 声明。
 - catch 变量取文案用 `getErrorMessage(error)`（content-core），不要 `(error as Error).message`。
-- 凭据无默认值：`ADMIN_PASSWORD`/`SESSION_SECRET` 未设置时启动期随机生成并打印一次；`HOST` 非 loopback 且未显式设凭据会打印安全警告。
+- 凭据链：`ADMIN_PASSWORD`/`SESSION_SECRET`/`ADMIN_USERNAME` 依次取 env > workspace `config/admin.local.json` > 启动期随机生成（打印一次）；`HOST` 非 loopback 且两层都未设凭据会打印安全警告。
 - git 子进程固定 `LC_ALL=C`（输出按英文匹配）。
 - quiver 静态应用的权威副本只有一份：`packages/commutative/vendor/quiver/`；`apps/admin/public/quiver/` 是由 `scripts/sync-quiver.mjs`（admin 的 predev/prebuild 钩子）生成的拷贝，已 gitignore，升级 quiver 只改 vendor 那份。

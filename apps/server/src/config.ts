@@ -1,13 +1,79 @@
 import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadWorkspacePaths } from "@blog-system/content-core/node";
 
+import { ConfigValidationError } from "./errors.js";
+
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
 const projectRoot = path.resolve(currentDir, "../../..");
 const workspacePaths = loadWorkspacePaths(projectRoot);
+
+const ADMIN_CREDENTIALS_FILE = "admin.local.json";
+
+export interface AdminCredentialsFile {
+  adminUsername?: string;
+  adminPassword?: string;
+  sessionSecret?: string;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Workspace-local admin credentials from `config/admin.local.json` — the
+ * middle layer of the credential chain
+ * `env > workspace file > generated per process`. Missing file is fine
+ * (returns {}); a malformed file fails loudly at startup.
+ */
+export function loadAdminCredentials(configRoot: string): AdminCredentialsFile {
+  const credentialsPath = path.join(configRoot, ADMIN_CREDENTIALS_FILE);
+  let raw: string;
+  try {
+    raw = readFileSync(credentialsPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new ConfigValidationError(`Admin credentials file ${ADMIN_CREDENTIALS_FILE} is not valid JSON.`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ConfigValidationError(`Admin credentials file ${ADMIN_CREDENTIALS_FILE} must be an object.`);
+  }
+  const source = parsed as Record<string, unknown>;
+  for (const key of ["adminUsername", "adminPassword", "sessionSecret"] as const) {
+    if (source[key] !== undefined && !isNonEmptyString(source[key])) {
+      throw new ConfigValidationError(`Admin credentials file ${ADMIN_CREDENTIALS_FILE} requires "${key}" to be a non-empty string when provided.`);
+    }
+  }
+
+  const credentials: AdminCredentialsFile = {};
+  const adminUsername = (source.adminUsername as string | undefined)?.trim();
+  const adminPassword = (source.adminPassword as string | undefined)?.trim();
+  const sessionSecret = (source.sessionSecret as string | undefined)?.trim();
+  if (adminUsername) {
+    credentials.adminUsername = adminUsername;
+  }
+  if (adminPassword) {
+    credentials.adminPassword = adminPassword;
+  }
+  if (sessionSecret) {
+    credentials.sessionSecret = sessionSecret;
+  }
+  return credentials;
+}
 
 export interface ServerSettings {
   assetsRoot: string;
@@ -25,7 +91,7 @@ export interface ServerSettings {
   sessionSecret: string;
   siteDistDir: string;
   workspaceRoot: string;
-  /** True when `adminPassword` was randomly generated because ADMIN_PASSWORD was not set. */
+  /** True when `adminPassword` was randomly generated because neither env nor the workspace file set one. */
   generatedAdminPassword?: boolean;
 }
 
@@ -47,7 +113,7 @@ function isLoopbackHost(host: string) {
 // terminal with passwords that their explicit settings later override.
 let hasAnnouncedCredentialState = false;
 
-function announceCredentialState(settings: ServerSettings, sessionSecretFromEnv: boolean) {
+function announceCredentialState(settings: ServerSettings, credentialsAreExplicit: boolean) {
   if (hasAnnouncedCredentialState) {
     return;
   }
@@ -57,28 +123,33 @@ function announceCredentialState(settings: ServerSettings, sessionSecretFromEnv:
     console.log("[blog-system] ADMIN_PASSWORD is not set; generated a random admin password for this run:");
     console.log(`[blog-system]   admin username: ${settings.adminUsername}`);
     console.log(`[blog-system]   admin password: ${settings.adminPassword}`);
-    console.log("[blog-system] Set the ADMIN_PASSWORD environment variable to use a fixed password.");
+    console.log("[blog-system] Set the ADMIN_PASSWORD environment variable or config/admin.local.json to use a fixed password.");
   }
 
-  if (!isLoopbackHost(settings.host) && (settings.generatedAdminPassword || !sessionSecretFromEnv)) {
+  if (!isLoopbackHost(settings.host) && !credentialsAreExplicit) {
     console.warn("[blog-system] *** SECURITY WARNING ***");
     console.warn(
       `[blog-system] Binding to non-loopback host "${settings.host}" without explicit ADMIN_PASSWORD/SESSION_SECRET.`
     );
     console.warn("[blog-system] Sessions are signed with an ephemeral secret and the admin password is random.");
-    console.warn("[blog-system] Set ADMIN_PASSWORD and SESSION_SECRET before exposing this server to a network.");
+    console.warn("[blog-system] Set ADMIN_PASSWORD and SESSION_SECRET (env or config/admin.local.json) before exposing this server to a network.");
   }
 }
 
 export function getDefaultSettings(): ServerSettings {
-  const envAdminPassword = process.env.ADMIN_PASSWORD?.trim();
-  const envSessionSecret = process.env.SESSION_SECRET?.trim();
+  const fileCredentials = loadAdminCredentials(workspacePaths.configRoot);
+  const adminPassword = process.env.ADMIN_PASSWORD?.trim() || fileCredentials.adminPassword || generateAdminPassword();
+  const sessionSecret = process.env.SESSION_SECRET?.trim() || fileCredentials.sessionSecret || generateSessionSecret();
+  const credentialsAreExplicit = Boolean(
+    (process.env.ADMIN_PASSWORD?.trim() || fileCredentials.adminPassword) &&
+    (process.env.SESSION_SECRET?.trim() || fileCredentials.sessionSecret)
+  );
 
   const settings: ServerSettings = {
     assetsRoot: workspacePaths.assetsRoot,
     adminDistDir: path.join(projectRoot, "apps", "admin", "dist"),
-    adminPassword: envAdminPassword || generateAdminPassword(),
-    adminUsername: process.env.ADMIN_USERNAME ?? "admin",
+    adminPassword,
+    adminUsername: process.env.ADMIN_USERNAME ?? fileCredentials.adminUsername ?? "admin",
     configRoot: workspacePaths.configRoot,
     contentRoot: workspacePaths.contentRoot,
     editorConfigDir: workspacePaths.editorConfigDir,
@@ -87,13 +158,13 @@ export function getDefaultSettings(): ServerSettings {
     projectsRoot: workspacePaths.projectsRoot,
     port: Number(process.env.PORT ?? 8787),
     host: process.env.HOST ?? "127.0.0.1",
-    sessionSecret: envSessionSecret || generateSessionSecret(),
+    sessionSecret,
     siteDistDir: path.join(projectRoot, "apps", "site", "dist"),
     workspaceRoot: workspacePaths.workspaceRoot,
-    generatedAdminPassword: !envAdminPassword
+    generatedAdminPassword: !(process.env.ADMIN_PASSWORD?.trim() || fileCredentials.adminPassword)
   };
 
-  announceCredentialState(settings, Boolean(envSessionSecret));
+  announceCredentialState(settings, credentialsAreExplicit);
 
   return settings;
 }

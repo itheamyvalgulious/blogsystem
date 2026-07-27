@@ -1001,10 +1001,17 @@ a {
   white-space: normal;
 }
 
-/* Inside float panels the block is already framed by .cm-lp-float. */
+/* Inside float panels the block is already framed by .cm-lp-float. The
+   panel owns scrolling (max-height); the block itself must NEVER scroll
+   horizontally — the relayout reconcile pass (see cm-live-preview-float.ts)
+   grows the panel to the content's real scrollWidth, so any inner
+   overflow: auto could only surface as the stray scrollbar the user
+   reported. The bare below-source .cm-lp-block keeps overflow: auto as the
+   last-resort for extreme widths. */
 .cm-lp-float > .cm-lp-block {
   padding: 0;
   border-top: none;
+  overflow: visible;
 }
 
 .cm-lp-block-content--pending,
@@ -1063,7 +1070,13 @@ a {
 .cm-lp-float {
   position: absolute;
   max-height: 40vh;
-  overflow: auto;
+  /* The relayout reconcile pass grows the panel to the content's real
+     scrollWidth (and anything genuinely wider goes below), so content
+     always fits: hide the horizontal scrollbar outright instead of letting
+     sub-pixel overflow surface one. Vertical scrolling for tall panels is
+     kept. */
+  overflow-x: hidden;
+  overflow-y: auto;
   z-index: 5;
   pointer-events: auto;
   /* Same break-spaces lesson as .cm-lp-block. */

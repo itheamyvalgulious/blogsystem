@@ -125,6 +125,38 @@ export function computeLivePreviewFloatFit(
   return { mode: "float", left: codeRight + margin, width: naturalW };
 }
 
+/** Outcome of the per-relayout width reconciliation. */
+export type FloatWidthReconciliation =
+  | { kind: "keep"; width: number }
+  | { kind: "grow"; width: number }
+  | { kind: "below" };
+
+/**
+ * Per-relayout width reconciliation (see relayout): the applied panel width
+ * must never be smaller than the hosted content's measured `scrollWidth`.
+ * naturalW can under-measure (sub-pixel rounding of `offsetWidth`, KaTeX
+ * font-metric drift after `document.fonts` finishes — font loading does not
+ * mutate the DOM, so a cached width goes silently stale); without this pass
+ * the inner `overflow: auto` block shows the horizontal scrollbar the user
+ * sees. Grow when the content is wider but still fits, flip below when it
+ * exceeds the available width, keep otherwise — NEVER shrink, which is what
+ * makes the pass idempotent (a settled width never changes again, so no
+ * jitter). Unit-tested.
+ */
+export function reconcileFloatWidth(
+  currentW: number,
+  contentScrollW: number,
+  available: number
+): FloatWidthReconciliation {
+  if (contentScrollW > available) {
+    return { kind: "below" };
+  }
+  if (contentScrollW > currentW) {
+    return { kind: "grow", width: contentScrollW };
+  }
+  return { kind: "keep", width: currentW };
+}
+
 export interface LivePreviewFloatAnchor {
   id: string;
   top: number;
@@ -200,6 +232,8 @@ export function getCmLivePreviewFloatExtension(): Extension {
        * inside finishes loading/erroring.
        */
       private readonly naturalWidths = new Map<string, number>();
+      /** Bound fonts-settled handler (removed in destroy); see constructor. */
+      private onFontsSettled: (() => void) | null = null;
 
       constructor(private readonly view: EditorView) {
         // CM timing rules honoured throughout this plugin:
@@ -230,6 +264,21 @@ export function getCmLivePreviewFloatExtension(): Extension {
           this.scheduleLayout();
         });
         this.mutationObserver.observe(view.dom, { childList: true, subtree: true });
+        // KaTeX (and its fonts) load lazily: font loading changes content
+        // widths but does NOT mutate the DOM, so neither the MutationObserver
+        // nor any panel listener notices. When the font set settles
+        // (fonts.ready for the initial cycle, loadingdone for each later
+        // cycle — KaTeX fonts typically arrive late), drop every cached
+        // natural width and re-measure; the reconcile pass then grows any
+        // panel the stale cache had undersized.
+        if (typeof document !== "undefined" && document.fonts) {
+          this.onFontsSettled = () => {
+            this.naturalWidths.clear();
+            this.scheduleLayout();
+          };
+          void document.fonts.ready.then(this.onFontsSettled);
+          document.fonts.addEventListener("loadingdone", this.onFontsSettled);
+        }
         this.initTimer = setTimeout(() => {
           this.initTimer = null;
           this.refreshMode();
@@ -253,6 +302,10 @@ export function getCmLivePreviewFloatExtension(): Extension {
       destroy() {
         this.resizeObserver.disconnect();
         this.mutationObserver.disconnect();
+        if (this.onFontsSettled && typeof document !== "undefined" && document.fonts) {
+          document.fonts.removeEventListener("loadingdone", this.onFontsSettled);
+          this.onFontsSettled = null;
+        }
         this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
         if (this.layoutRaf) {
           cancelAnimationFrame(this.layoutRaf);
@@ -447,9 +500,26 @@ export function getCmLivePreviewFloatExtension(): Extension {
             belowKeys.add(descriptor.key);
             continue;
           }
+
+          // Reconciliation against the REAL content width (see
+          // reconcileFloatWidth): under-measurement (sub-pixel rounding,
+          // KaTeX font-metric drift) would otherwise let the inner block
+          // show a horizontal scrollbar. Grow-and-cache or flip below;
+          // never shrink, so the pass is idempotent and jitter-free.
+          const codeRight = lineEndXs.length > 0 ? Math.max(...lineEndXs) : 0;
+          const available = contentRight - (codeRight + FLOAT_PANEL_MARGIN + FLOAT_PANEL_MARGIN);
+          const content = entry.panel.firstElementChild as HTMLElement | null;
+          const reconciliation = reconcileFloatWidth(fit.width, content ? content.scrollWidth : 0, available);
+          if (reconciliation.kind === "below") {
+            belowKeys.add(descriptor.key);
+            continue;
+          }
+          if (reconciliation.kind === "grow") {
+            this.naturalWidths.set(descriptor.key, reconciliation.width);
+          }
           floatCandidates.push({ key: descriptor.key, range, entry });
           entry.panel.style.left = `${fit.left}px`;
-          entry.panel.style.width = `${fit.width}px`;
+          entry.panel.style.width = `${reconciliation.width}px`;
         }
 
         // 2. Drop panels that are no longer candidates or fell back below.

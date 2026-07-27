@@ -1,6 +1,12 @@
 import { spawn } from "node:child_process";
 import process from "node:process";
 
+// Dev-only defaults: bind all interfaces so the workbench is reachable from
+// other machines on the LAN (remote development). Explicit env always wins;
+// production defaults (loopback) in apps/server/src/config.ts are untouched.
+process.env.HOST ??= "0.0.0.0";
+process.env.BLOG_SYSTEM_ADMIN_HOST ??= "0.0.0.0";
+
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const projectRoot = process.cwd();
 const colorMap = {
