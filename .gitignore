@@ -13,10 +13,13 @@ test-results
 .env
 .DS_Store
 config/site-publish.local.json
+config/admin.local.json
 .playwright-mcp
 /admin-*.png
 /commutative-*.png
 .mimocode
 .vscode
+temp.png
+config.json
 # 由 scripts/sync-quiver.mjs 生成，权威副本在 packages/commutative/vendor/quiver/
 apps/admin/public/quiver
