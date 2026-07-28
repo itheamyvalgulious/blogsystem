@@ -1,10 +1,6 @@
 import { spawn } from "node:child_process";
 import process from "node:process";
 
-// Load machine-local .env (gitignored) so BLOG_SYSTEM_WORKSPACE and other
-// settings are available without exporting env vars manually.
-try { process.loadEnvFile(); } catch { /* no .env — use env/defaults */ }
-
 // Dev-only defaults: bind all interfaces so the workbench is reachable from
 // other machines on the LAN (remote development). Explicit env always wins;
 // production defaults (loopback) in apps/server/src/config.ts are untouched.

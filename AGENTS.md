@@ -14,7 +14,7 @@ npm workspaces monorepo（TypeScript, ESM）。包管理器只用 npm（pnpm 已
 ## 常用命令
 
 - `npm run dev` — 开发三件套（server/admin/site,`scripts/dev.mjs`）；dev 专属默认 `HOST`/`BLOG_SYSTEM_ADMIN_HOST` 为 `0.0.0.0`（局域网可调试，显式 env 覆盖；生产默认仍 loopback）。
-- `npm run init-workspace` — 在代码仓库的兄弟目录创建 workspace（`../blog-workspace`），所有内容/配置/凭据文件都在 workspace 内，代码仓库不含本地数据。
+- `npm run init-workspace` — 创建 workspace（默认 `../blog-workspace`，可用 `--path` 覆盖），所有内容/配置/凭据文件都在 workspace 内。
 - `npm run build` — 全量构建（site 的 cli-build 依赖 workspace；新机器先 `npm run init-workspace`）。
 - `npm test` — 先构建两个共享包再跑全部测试（node:test + tsx）。
 - `npm run typecheck` — 全仓 `tsc --noEmit`（提交前必须通过）。
@@ -25,7 +25,7 @@ npm workspaces monorepo（TypeScript, ESM）。包管理器只用 npm（pnpm 已
 - 测试脚本 glob 必须加引号：`tsx --test "src/**/*.test.ts"`（POSIX sh 会错误展开 `**`）。
 - 禁止 `@ts-ignore`/`@ts-nocheck`；vendored/第三方模块用 ambient d.ts 声明。
 - catch 变量取文案用 `getErrorMessage(error)`（content-core），不要 `(error as Error).message`。
-- workspace 路径解析：`BLOG_SYSTEM_WORKSPACE` env（dev.mjs 自动加载代码根的 `.env`）> 遗留 `config.json`（向后兼容，已 gitignore）。代码仓库不含本地数据文件。
+- workspace 路径由代码根的 `config.json`（`{"workspace": "/abs/path"}`，gitignored）指定；`BLOG_SYSTEM_WORKSPACE` env 覆盖（CI/测试用）。其余配置（凭据、AI、编辑器）在 workspace 的 `config/` 下。
 - 凭据链：`ADMIN_PASSWORD`/`SESSION_SECRET`/`ADMIN_USERNAME` 依次取 env > workspace `config/admin.local.json` > 启动期随机生成（打印一次）；`HOST` 非 loopback 且两层都未设凭据会打印安全警告。
 - git 子进程固定 `LC_ALL=C`（输出按英文匹配）。
 - quiver 静态应用的权威副本只有一份：`packages/commutative/vendor/quiver/`；`apps/admin/public/quiver/` 是由 `scripts/sync-quiver.mjs`（admin 的 predev/prebuild 钩子）生成的拷贝，已 gitignore，升级 quiver 只改 vendor 那份。
