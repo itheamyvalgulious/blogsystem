@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
@@ -23,21 +23,12 @@ function parseArgs(argv) {
   return args;
 }
 
-function readConfig(configPath) {
-  if (!existsSync(configPath)) return {};
-  return JSON.parse(readFileSync(configPath, "utf8"));
-}
-
-function writeConfig(configPath, config) {
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
-}
-
 const projectRoot = path.resolve(import.meta.dirname, "..");
-const configPath = path.join(projectRoot, "config.json");
 const args = parseArgs(process.argv.slice(2));
 
-const config = readConfig(configPath);
-const workspacePath = args.path ?? config.workspace ?? "./blog-workspace";
+// Default: a sibling "blog-workspace" next to the code repo — keeps all
+// machine-local data out of the code repository.
+const workspacePath = args.path ?? "../blog-workspace";
 const workspaceRoot = path.resolve(projectRoot, workspacePath);
 
 if (args.url) {
@@ -63,9 +54,6 @@ for (const dir of STANDARD_DIRS) {
   }
 }
 
-config.workspace = path.isAbsolute(workspacePath)
-  ? workspaceRoot
-  : path.relative(projectRoot, workspaceRoot) || ".";
-writeConfig(configPath, config);
 console.log(`\nWorkspace ready at ${workspaceRoot}`);
-console.log(`Updated config.json → workspace: "${config.workspace}"`);
+console.log(`The code repo resolves it automatically (sibling "blog-workspace" convention).`);
+console.log(`To override: set BLOG_SYSTEM_WORKSPACE env or use --path.`);
