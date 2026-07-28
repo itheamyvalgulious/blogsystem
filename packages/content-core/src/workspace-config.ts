@@ -15,7 +15,6 @@ export interface WorkspacePaths {
   workspaceRoot: string;
 }
 
-const DEFAULT_WORKSPACE_DIRNAME = "blog-workspace";
 
 /**
  * Resolves the workspace root in priority order:
@@ -33,14 +32,6 @@ export function loadWorkspacePaths(codeRoot: string): WorkspacePaths {
 
   if (envWorkspaceValue) {
     workspaceRoot = path.resolve(codeRoot, envWorkspaceValue);
-  }
-
-  // Convention: a sibling `blog-workspace` next to the code repo.
-  if (!workspaceRoot) {
-    const sibling = path.resolve(codeRoot, "..", DEFAULT_WORKSPACE_DIRNAME);
-    if (existsSync(sibling)) {
-      workspaceRoot = sibling;
-    }
   }
 
   // Legacy: config.json in the code root (gitignored, backward compat).
@@ -61,7 +52,7 @@ export function loadWorkspacePaths(codeRoot: string): WorkspacePaths {
 
   if (!workspaceRoot) {
     throw new Error(
-      `Workspace not found. Set BLOG_SYSTEM_WORKSPACE, place a sibling "${DEFAULT_WORKSPACE_DIRNAME}/" next to the code, or create config.json with {"workspace": "/abs/path"}.`
+      `Workspace not found. Set BLOG_SYSTEM_WORKSPACE (env or .env file), or create config.json with {"workspace": "/abs/path"}.`
     );
   }
 

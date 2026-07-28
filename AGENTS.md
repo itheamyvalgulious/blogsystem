@@ -25,7 +25,7 @@ npm workspaces monorepo（TypeScript, ESM）。包管理器只用 npm（pnpm 已
 - 测试脚本 glob 必须加引号：`tsx --test "src/**/*.test.ts"`（POSIX sh 会错误展开 `**`）。
 - 禁止 `@ts-ignore`/`@ts-nocheck`；vendored/第三方模块用 ambient d.ts 声明。
 - catch 变量取文案用 `getErrorMessage(error)`（content-core），不要 `(error as Error).message`。
-- workspace 路径解析：`BLOG_SYSTEM_WORKSPACE` env > 兄弟目录 `../blog-workspace`（约定）> 遗留 `config.json`（向后兼容，已 gitignore）。代码仓库不含本地数据文件。
+- workspace 路径解析：`BLOG_SYSTEM_WORKSPACE` env（dev.mjs 自动加载代码根的 `.env`）> 遗留 `config.json`（向后兼容，已 gitignore）。代码仓库不含本地数据文件。
 - 凭据链：`ADMIN_PASSWORD`/`SESSION_SECRET`/`ADMIN_USERNAME` 依次取 env > workspace `config/admin.local.json` > 启动期随机生成（打印一次）；`HOST` 非 loopback 且两层都未设凭据会打印安全警告。
 - git 子进程固定 `LC_ALL=C`（输出按英文匹配）。
 - quiver 静态应用的权威副本只有一份：`packages/commutative/vendor/quiver/`；`apps/admin/public/quiver/` 是由 `scripts/sync-quiver.mjs`（admin 的 predev/prebuild 钩子）生成的拷贝，已 gitignore，升级 quiver 只改 vendor 那份。
