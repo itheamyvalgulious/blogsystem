@@ -10,22 +10,20 @@ import {
 import {
   scanDocumentMathPairs,
   tokenizeLatexMathFragment
-} from "../../markdown-math-tokenization";
+} from "../../markdown-math-scanner";
 
 /**
  * LaTeX math highlighting for the CodeMirror "live" engine.
  *
  * `scanDocumentMathPairs` locates `$...$`/`$$...$$` regions over the whole
  * document; inside each region the shared `tokenizeLatexMathFragment`
- * classifier (the same one backing the Monaco math token overlay) splits the
- * fragment into keyword/comment/number/delimiter/type tokens, emitted as
- * `.cm-mtok-*` mark decorations. Everything outside math regions is left to
- * @codemirror/lang-markdown's base highlighting.
+ * classifier splits the fragment into keyword/comment/number/delimiter/type
+ * tokens, emitted as `.cm-mtok-*` mark decorations. Everything outside math
+ * regions is left to @codemirror/lang-markdown's base highlighting.
  *
  * Decorations are computed for the visible viewport only (viewport-driven
- * ViewPlugin), and recomputed on document/viewport changes. Unlike the
- * Monaco overlay this does not consult the shared math-pairs cache — the
- * scan is cheap and always in sync with the current buffer.
+ * ViewPlugin), and recomputed on document/viewport changes. The scan is cheap
+ * and always in sync with the current buffer.
  *
  * No monaco imports: this module must stay loadable in Node test runs.
  */
@@ -86,7 +84,7 @@ function buildMathDecorations(
     const endLine = doc.line(Math.min(pair.endLine, doc.lines));
     const from = startLine.from + pair.startCol - 1;
     // MathPair.endCol is the end-exclusive 0-based offset within the line
-    // (see markdown-math-tokenization.scanDocumentMathPairs).
+    // (see markdown-math-scanner.scanDocumentMathPairs).
     const to = Math.min(endLine.from + pair.endCol, doc.length);
     if (to <= from) {
       continue;

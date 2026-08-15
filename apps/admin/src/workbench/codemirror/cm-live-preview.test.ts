@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 
 import { EditorState } from "@codemirror/state";
 import type { EditorView, ViewUpdate } from "@codemirror/view";
-import { markdownLanguage } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { foldNodeProp, foldable, syntaxTree } from "@codemirror/language";
 import type { MarkdownParser } from "@lezer/markdown";
 
 import { setWorkbenchLivePreviewContext } from "./cm-context";
@@ -32,6 +33,7 @@ import {
   refreshLivePreview,
   reportLivePreviewFloatMode,
   resolveBlockPreviewJumpTarget,
+  resolveInlineMathBandAnchor,
   resolveLivePreviewImageSrc,
   setInlineMathVisualTops,
   setInlineMathWrapEnds,
@@ -625,7 +627,7 @@ test("inline math bands stay below the source in float mode", () => {
     // Float mode: the $$ below-widget is suppressed (no block widgets left);
     // the inline-math band always stays below (unmeasured → line end, 7).
     assert.deepEqual(blockWidgetSpecs(state), []);
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 7, to: 7, side: -1 }]);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 7, to: 7, side: 1 }]);
   } finally {
     reportLivePreviewFloatMode(standInView, false);
     setReadingMode("read");
@@ -748,7 +750,7 @@ test("reading mode inline-replaces formulas outside the cursor region", () => {
     assert.equal(replaceWidgetSpecs(state).length, 0);
     assert.equal(inlineMathBandSpecs(state).length, 0);
     state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 7]])) }).state;
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 7, to: 7, side: -1 }]);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 7, to: 7, side: 1 }]);
   } finally {
     setReadingMode("read");
   }
@@ -858,7 +860,7 @@ test("same-line formulas share one band anchored at the last formula's wrap end"
       extensions: [cmLivePreview]
     });
     state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[10, 17]])) }).state;
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 17, to: 17, side: -1 }]);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 17, to: 17, side: 1 }]);
   } finally {
     setReadingMode("read");
   }
@@ -893,8 +895,8 @@ test("measured visual tops regroup a same-line formula pair into separate bands"
       ]
     }).state;
     assert.deepEqual(inlineMathBandSpecs(state), [
-      { from: 8, to: 8, side: -1 },
-      { from: 17, to: 17, side: -1 }
+      { from: 8, to: 8, side: 1 },
+      { from: 17, to: 17, side: 1 }
     ]);
   } finally {
     setReadingMode("read");
@@ -965,7 +967,7 @@ test("inline math band is an inline (non-block) widget that waits for the wrap e
     // Once measured (short line → wrap end = line end, 10), the band
     // appears there as an inline widget.
     state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 10]])) }).state;
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 10, to: 10, side: -1 }]);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 10, to: 10, side: 1 }]);
     // The band must NOT be a block widget — mid-line block widgets are what
     // desynced CM's height map (see InlineMathRowWidget).
     assert.equal(blockWidgetSpecs(state).length, 0);
@@ -981,7 +983,7 @@ test("inline math band anchor follows the measured wrap end", () => {
     // the formula): the band moves from the line end to the wrap end.
     let state = EditorState.create({ doc: "a $x$ more\n", extensions: [cmLivePreview] });
     state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 5]])) }).state;
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 5, to: 5, side: -1 }]);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 5, to: 5, side: 1 }]);
   } finally {
     setReadingMode("read");
   }
@@ -1008,6 +1010,50 @@ test("findVisualRowWrapEnd: binary search for the first lower-row position", () 
 
   // Domain starts mid-line: a wrap BEFORE `from` is invisible.
   assert.equal(findVisualRowWrapEnd(40, 80, 121, topFor), 80);
+});
+
+test("inline math bands move before trailing spaces so the line-end caret remains visible", () => {
+  const doc = EditorState.create({ doc: "a $x$   \n" }).doc;
+  assert.equal(resolveInlineMathBandAnchor(doc, 5, 8), 5);
+  assert.equal(resolveInlineMathBandAnchor(doc, 5, 6), 5);
+
+  setReadingMode("write");
+  try {
+    let state = EditorState.create({
+      doc: "a $x$   \n",
+      extensions: [cmLivePreview]
+    });
+    state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 8]])) }).state;
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 5, to: 5, side: 1 }]);
+  } finally {
+    setReadingMode("read");
+  }
+
+  const contentDoc = EditorState.create({ doc: "a $x$ text\n" }).doc;
+  assert.equal(resolveInlineMathBandAnchor(contentDoc, 5, 10), 10);
+});
+
+test("list folding excludes an unindented paragraph after the list item", () => {
+  const state = EditorState.create({
+    doc: "- item\nordinary paragraph\n",
+    extensions: [markdown({ base: markdownLanguage, extensions: cmMathMarkdown })]
+  });
+  const firstLine = state.doc.line(1);
+  const firstNode = syntaxTree(state).resolveInner(1);
+  const firstListItem = firstNode.name === "ListItem" ? firstNode : firstNode.parent;
+  assert.ok(firstListItem);
+  assert.equal(firstListItem?.type.prop(foldNodeProp)?.(firstListItem, state), null);
+  assert.equal(foldable(state, firstLine.from, firstLine.to), null);
+
+  const indentedState = EditorState.create({
+    doc: "- item\n  continuation\n",
+    extensions: [markdown({ base: markdownLanguage, extensions: cmMathMarkdown })]
+  });
+  const indentedLine = indentedState.doc.line(1);
+  assert.deepEqual(foldable(indentedState, indentedLine.from, indentedLine.to), {
+    from: indentedLine.to,
+    to: indentedState.doc.line(2).to
+  });
 });
 
 test("resolveInlineMathBandAnchor fallback is gone: no band without a measured wrap end", () => {
@@ -1053,7 +1099,7 @@ test("first entry anchors at the measured wrap end; cycles are identical", () =>
     const enter = (s: EditorState) =>
       s.update({ selection: { anchor: 11 }, effects: setInlineMathWrapEnds.of(wrapEnds) }).state;
     const cycle1 = enter(state);
-    assert.deepEqual(inlineMathBandSpecs(cycle1), [{ from: 17, to: 17, side: -1 }]);
+    assert.deepEqual(inlineMathBandSpecs(cycle1), [{ from: 17, to: 17, side: 1 }]);
     // Exit → replaced again; re-enter → pixel-identical spec (cycle consistency).
     state = cycle1.update({ selection: { anchor: 0 } }).state;
     assert.equal(inlineMathBandSpecs(state).length, 0);

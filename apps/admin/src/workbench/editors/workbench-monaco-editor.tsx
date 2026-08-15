@@ -1,9 +1,9 @@
 import type { WorkbenchEditorComponentProps } from "../types";
-import { MonacoMarkdownEditor } from "./monaco-markdown-editor";
+import { MonacoTextEditor } from "./monaco-text-editor";
 
 export function WorkbenchMonacoEditor(props: WorkbenchEditorComponentProps) {
   return (
-    <MonacoMarkdownEditor
+    <MonacoTextEditor
       editorKey={`${props.document.id}:${props.document.editorId}`}
       language={props.document.language}
       onChange={props.onChange}

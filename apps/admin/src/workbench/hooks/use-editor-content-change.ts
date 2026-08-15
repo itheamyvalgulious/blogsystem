@@ -10,7 +10,7 @@ import {
   scanDocumentMathPairs,
   updateMathPairsCache,
   type MathPair
-} from "../../markdown-math-tokenization";
+} from "../../markdown-math-scanner";
 import {
   hashLine,
   scanHeadingsFromText,

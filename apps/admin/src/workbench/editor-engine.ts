@@ -121,7 +121,7 @@ export interface SnippetControllerHandle {
 /**
  * Engine-reported feature state used to build keybinding when-contexts.
  * Optional: engines that cannot report a feature leave the workbench's
- * existing DOM-based detection in place (Monaco keeps its DOM queries).
+ * existing DOM-based detection in place.
  */
 export interface EditorFeatureState {
   suggestWidgetVisible?: boolean;
@@ -159,7 +159,7 @@ export interface WorkbenchEditorHandle {
   getDomNode(): HTMLElement | null;
   hasTextFocus(): boolean;
   focus(): void;
-  getContribution(id: "snippetController2"): SnippetControllerHandle | null;
+  getSnippetController(): SnippetControllerHandle | null;
   getOption(option: EditorOptionId): boolean;
   getEditorFeatureState?(): EditorFeatureState;
 }

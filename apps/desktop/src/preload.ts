@@ -36,9 +36,9 @@ contextBridge.exposeInMainWorld("blogSystemDesktop", {
   isElectron: true
 });
 
-// The main process sets ADMIN_USERNAME/ADMIN_PASSWORD for the embedded server
-// (random per launch unless the user exported their own). Renderer processes
-// inherit the environment, so we can offer them here for login prefill.
+// The main process sets ADMIN_USERNAME/ADMIN_PASSWORD to the credentials
+// resolved by the embedded server. Renderer processes inherit the environment,
+// so we can offer the same credentials here for login prefill.
 contextBridge.exposeInMainWorld("desktopAuth", {
   getCredentials(): { username: string; password: string } | null {
     const username = process.env.ADMIN_USERNAME?.trim() || "admin";

@@ -171,7 +171,7 @@ function isMarkdownDocument(document: WorkbenchDocument | null) {
 }
 
 /**
- * Build a commutative fence block string for insertion into Monaco.
+ * Build a commutative fence block string for insertion into Markdown.
  * The body is now tikzcd LaTeX (not base64). The info-string preserves
  * any `width/scale/align` params from the original block.
  */
@@ -296,7 +296,7 @@ function openCommutativeModal(
    * via postMessage. The iframe's new message handler calls
    * `QuiverImportExport.tikz_cd.export(...)` and returns the LaTeX string,
    * which we strip of its `\begin{tikzcd}/\end{tikzcd}` wrappers and write
-   * back into the Monaco fence body.
+   * back into the Markdown fence body.
    */
   const apply = () => {
     const iframeWindow = iframe.contentWindow;

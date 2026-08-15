@@ -2,15 +2,16 @@ import {
   acceptCompletion,
   closeCompletion,
   completionStatus,
-  hasNextSnippetField,
-  hasPrevSnippetField,
-  nextSnippetField,
-  prevSnippetField,
-  snippet,
   startCompletion
 } from "@codemirror/autocomplete";
 import { EditorSelection, Text, Transaction, type ChangeSpec } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import {
+  insertCmSnippet,
+  isCmSnippetActive,
+  nextCmSnippetField,
+  prevCmSnippetField
+} from "./cm-snippets";
 
 import {
   EditorOption,
@@ -257,20 +258,14 @@ export function createCmEditorHandle(getView: () => EditorView | null): CmEditor
   const snippetController: SnippetControllerHandle = {
     insert: (template) => {
       const view = getView();
-      // @codemirror/autocomplete's snippet() works without the completion
-      // extension and understands the Monaco snippet syntax ($1,
-      // ${1:placeholder}, $0).
       if (view) {
         const { main } = view.state.selection;
-        snippet(template)(view, null, main.from, main.to);
+        insertCmSnippet(view, template, main.from, main.to);
       }
     },
-    // Approximation: CM only exposes whether a next/previous snippet field
-    // exists; combined they cover "in snippet mode" except for degenerate
-    // single-tabstop snippets that also evaluate to done in Monaco.
     isInSnippet: () => {
       const view = getView();
-      return view ? hasNextSnippetField(view.state) || hasPrevSnippetField(view.state) : false;
+      return view ? isCmSnippetActive(view.state) : false;
     }
   };
 
@@ -369,10 +364,10 @@ export function createCmEditorHandle(getView: () => EditorView | null): CmEditor
           acceptCompletion(view);
           break;
         case "jumpToNextSnippetPlaceholder":
-          nextSnippetField(view);
+          nextCmSnippetField({ dispatch: view.dispatch, state: view.state });
           break;
         case "jumpToPrevSnippetPlaceholder":
-          prevSnippetField(view);
+          prevCmSnippetField({ dispatch: view.dispatch, state: view.state });
           break;
         default:
           // Monaco-specific command ids (e.g. editor.action.copyLinesDownAction)
@@ -480,7 +475,7 @@ export function createCmEditorHandle(getView: () => EditorView | null): CmEditor
     getDomNode: () => getView()?.dom ?? null,
     hasTextFocus: () => getView()?.hasFocus ?? false,
     focus: () => getView()?.focus(),
-    getContribution: (id) => (id === "snippetController2" ? snippetController : null),
+    getSnippetController: () => snippetController,
     getOption: (option: EditorOptionId) => {
       switch (option) {
         case EditorOption.readOnly:

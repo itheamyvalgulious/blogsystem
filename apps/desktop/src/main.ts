@@ -1,5 +1,4 @@
 import { app, BrowserWindow, Menu, dialog } from "electron";
-import { randomBytes } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -78,41 +77,29 @@ function forwardWorkbenchShortcut(window: BrowserWindow, input: Parameters<NonNu
   });
 }
 
-interface DesktopCredentials {
-  adminPassword: string;
-  sessionSecret: string;
-}
-
-function ensureDesktopCredentials(): DesktopCredentials {
-  // The embedded server is imported into this process, so it reads the same
-  // environment. `??=` keeps credentials the user exported before launching,
-  // otherwise we generate per-launch random ones; the preload script exposes
-  // them to the renderer for login prefill via window.desktopAuth.
-  process.env.ADMIN_PASSWORD ??= randomBytes(12).toString("base64url");
-  process.env.SESSION_SECRET ??= randomBytes(32).toString("base64url");
-
-  return {
-    adminPassword: process.env.ADMIN_PASSWORD,
-    sessionSecret: process.env.SESSION_SECRET
-  };
-}
-
-async function startEmbeddedServer(serverPort: number, credentials: DesktopCredentials) {
+async function startEmbeddedServer(serverPort: number) {
   writeDebugLog(`starting embedded server on ${serverPort}`);
   const serverEntry = path.join(getProjectRoot(), "apps", "server", "dist", "index.cjs");
   const serverModule = (await import(pathToFileURL(serverEntry).href)) as {
-    startServer(customSettings?: {
-      adminPassword?: string;
-      port?: number;
-      sessionSecret?: string;
-    }): Promise<{ close(): Promise<void> }>;
+    startServer(customSettings?: { port?: number }): Promise<{
+      close(): Promise<void>;
+      settings: {
+        adminPassword: string;
+        adminUsername: string;
+      };
+    }>;
   };
 
-  return serverModule.startServer({
-    port: serverPort,
-    adminPassword: credentials.adminPassword,
-    sessionSecret: credentials.sessionSecret
-  });
+  const runningServer = await serverModule.startServer({ port: serverPort });
+
+  // Let the server resolve credentials through its normal chain first:
+  // environment > workspace config/admin.local.json > generated fallback.
+  // Copy the resolved values into the Electron process only after startup so
+  // the preload can prefill the same credentials that the server accepts.
+  process.env.ADMIN_USERNAME = runningServer.settings.adminUsername;
+  process.env.ADMIN_PASSWORD = runningServer.settings.adminPassword;
+
+  return runningServer;
 }
 
 async function ensureDesktopRuntime() {
@@ -142,8 +129,7 @@ async function ensureDesktopRuntime() {
 
     try {
       if (runtimeConfig.mode === "local") {
-        const credentials = ensureDesktopCredentials();
-        nextEmbeddedServer = await startEmbeddedServer(runtimeConfig.serverPort, credentials);
+        nextEmbeddedServer = await startEmbeddedServer(runtimeConfig.serverPort);
         embeddedServer = nextEmbeddedServer;
       }
 

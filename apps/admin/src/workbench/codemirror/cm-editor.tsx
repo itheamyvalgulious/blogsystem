@@ -38,6 +38,8 @@ import {
 } from "./cm-handle";
 import { cmMathHighlight } from "./cm-math-highlight";
 import { cmLivePreview, cmMathMarkdown } from "./cm-live-preview";
+import { cmOrderedListExtension } from "./cm-ordered-list";
+import { cmSnippetExtension } from "./cm-snippets";
 import {
   createCmBaseTheme,
   getCmThemeCompartmentExtension,
@@ -48,7 +50,7 @@ import {
 /**
  * CodeMirror 6 ("live" engine) markdown editor for the workbench.
  *
- * Props intentionally mirror `MonacoMarkdownEditor` one-to-one so the engine
+ * Props intentionally mirror the text editor contract one-to-one so the engine
  * host can swap implementations without touching callers.
  *
  * Design notes:
@@ -148,8 +150,18 @@ const baseExtensions: Extension[] = [
   // cmMathMarkdown makes the grammar math-atomic (`$$` blocks / `$...$`
   // produce no markdown children) so lezer highlighting never styles math
   // content — see cm-live-preview.ts.
-  markdown({ base: markdownLanguage, codeLanguages: languages, extensions: cmMathMarkdown }),
+  // Markdown's built-in keymap owns Enter and continues list markup before
+  // completionKeymap can accept a selected snippet. The workbench installs
+  // the equivalent list command in cm-keymap after completionKeymap instead.
+  markdown({
+    addKeymap: false,
+    base: markdownLanguage,
+    codeLanguages: languages,
+    extensions: cmMathMarkdown
+  }),
   createCmCompletionExtension(),
+  cmOrderedListExtension,
+  cmSnippetExtension,
   cmMathHighlight,
   cmLivePreview,
   createCmAiInlineCompletionExtension(),

@@ -1,8 +1,6 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
-import * as monacoEditor from "monaco-editor";
 
 import type { EditorSnippet } from "@blog-system/content-core";
-import { installAiInlineCompletion } from "../../ai-inline-completion";
 import {
   api,
   type EditorConfigPayload,
@@ -24,7 +22,7 @@ import {
   scanDocumentMathPairs,
   updateMathPairsCache,
   type MathPair
-} from "../../markdown-math-tokenization";
+} from "../../markdown-math-scanner";
 import { scanHeadingsFromText, type CachedHeading } from "../../markdown-outline";
 import {
   getSnippetTriggerCharacters,
@@ -37,12 +35,7 @@ import {
   isMarkdownCompletionDocument,
   isProjectTaskDocument
 } from "../document-builders";
-import { getJsonSchemaDefinitions } from "../editor-config";
 import type { PluginRuntime } from "../plugin-runtime";
-import {
-  getProjectTaskNoteQuery,
-  getProjectTaskNoteSuggestions
-} from "../project-task-utils";
 import type {
   ClipboardImageInput,
   EditorContributionDefinition,
@@ -50,7 +43,6 @@ import type {
   NormalizedSnippet,
   RevealLineOptions,
   SnippetLanguageId,
-  ThemeDefinition,
   WorkbenchApi,
   WorkbenchDocument
 } from "../types";
@@ -64,6 +56,10 @@ function toSnippetBody(body: string | string[]) {
 function getScopedSnippets(snippets: NormalizedSnippet[], languageId: "markdown" | "latex") {
   return getSnippetsForLanguage(snippets, languageId);
 }
+
+// Keep a short-lived per-editor marker so Shift-Tab at `$0` cannot fall
+// through to the editor's indentation command after a snippet finishes.
+const finishedSnippetEditors = new WeakSet<WorkbenchEditorHandle>();
 
 function resolveEditorSnippetState(
   linePrefix: string,
@@ -100,7 +96,6 @@ function isSuppressedDefaultEditorCommand(command: string, context: Record<strin
 interface EditorIntegrationOptions {
   activeDocument: WorkbenchDocument | null;
   activeEditorContribution: EditorContributionDefinition | null;
-  activeTheme: ThemeDefinition | null;
   articleCursorStatesRef: RefObject<Record<string, StoredArticleCursorState>>;
   editorReadyVersion: number;
   editorRef: RefObject<WorkbenchEditorHandle | null>;
@@ -114,7 +109,6 @@ interface EditorIntegrationOptions {
   lastStoredArticleLineNumberRef: RefObject<number | null>;
   loadTree: () => Promise<TreePayload>;
   mathPairsRef: RefObject<MathPair[]>;
-  monacoRef: RefObject<typeof monacoEditor | null>;
   normalizedConfig: NormalizedEditorConfig;
   pendingArticleRevealRef: RefObject<PendingArticleReveal | null>;
   pluginRuntime: PluginRuntime;
@@ -129,7 +123,6 @@ interface EditorIntegrationOptions {
 export function useEditorIntegration({
   activeDocument,
   activeEditorContribution,
-  activeTheme,
   articleCursorStatesRef,
   editorReadyVersion,
   editorRef,
@@ -140,7 +133,6 @@ export function useEditorIntegration({
   lastStoredArticleLineNumberRef,
   loadTree,
   mathPairsRef,
-  monacoRef,
   normalizedConfig,
   pendingArticleRevealRef,
   pluginRuntime,
@@ -158,22 +150,7 @@ export function useEditorIntegration({
     editorFeatureCleanupRef.current = null;
     editorRef.current = editor;
     editorServicesRef.current = services;
-    // The adapter is created from the same monaco instance that
-    // `loader.config({ monaco })` pins in App, so the module import here is
-    // the exact object the editor mounted with.
-    monacoRef.current = monacoEditor;
     setEditorReadyVersion((current) => current + 1);
-    monacoEditor.languages.json.jsonDefaults.setDiagnosticsOptions({
-      validate: true,
-      schemas: getJsonSchemaDefinitions()
-    });
-    // Module-level guarded: registered once for the whole app session, not per
-    // editor mount, so the dispose it returns is intentionally not wired into
-    // editorFeatureCleanupRef.
-    installAiInlineCompletion(monacoEditor);
-    if (activeTheme) {
-      monacoEditor.editor.setTheme(activeTheme.id);
-    }
 
     if (activeDocument?.language === "markdown") {
       const cleanups = pluginRuntime
@@ -198,7 +175,6 @@ export function useEditorIntegration({
       editorFeatureCleanupRef.current = null;
       editorRef.current = null;
       editorServicesRef.current = null;
-      monacoRef.current = null;
     }
   }, [activeDocument?.id, activeDocument?.kind, activeEditorContribution?.editorId]);
 
@@ -313,8 +289,7 @@ export function useEditorIntegration({
   }, [activeDocument?.id, editorReadyVersion, syncOutlineHeadings]);
 
   useEffect(() => {
-    // Feed the CodeMirror completion source (module singleton, read lazily at
-    // query time); mirrors the data the Monaco provider below closes over.
+    // Feed the CodeMirror completion source through its module-level context.
     setWorkbenchCompletionContext({
       activeDocument,
       articleSummaries: treePayload?.articles ?? [],
@@ -326,77 +301,16 @@ export function useEditorIntegration({
   useEffect(() => {
     const editor = editorRef.current;
     const services = editorServicesRef.current;
-    const monaco = monacoRef.current;
-    if (!editor || !services || !monaco) {
+    if (!editor || !services) {
       return;
     }
     const allSnippets = [...normalizedConfig.markdownSnippets, ...normalizedConfig.latexSnippets];
-    const markdownSymbolTriggerCharacters = getSnippetTriggerCharacters(normalizedConfig.markdownSnippets);
-    const latexSymbolTriggerCharacters = getSnippetTriggerCharacters(normalizedConfig.latexSnippets);
-    const completionProvider = monaco.languages.registerCompletionItemProvider("markdown", {
-      triggerCharacters: Array.from(
-        new Set(["@", ...markdownSymbolTriggerCharacters, ...latexSymbolTriggerCharacters])
-      ),
-      provideCompletionItems(model, position) {
-        const linePrefix = model.getValueInRange(new monaco.Range(position.lineNumber, 1, position.lineNumber, position.column));
-
-        if (isProjectTaskDocument(activeDocument)) {
-          const noteQuery = getProjectTaskNoteQuery(linePrefix);
-          if (!noteQuery) {
-            return { suggestions: [] };
-          }
-
-          const suggestions = getProjectTaskNoteSuggestions(noteQuery.query, treePayload?.articles ?? []).map(
-            (article, index) => ({
-              detail: article.path,
-              filterText: `${article.title} ${article.path} @note`.trim(),
-              insertText: `@note/${article.title} `,
-              kind: monaco.languages.CompletionItemKind.Reference,
-              label: {
-                description: article.path,
-                label: article.title
-              },
-              range: new monaco.Range(
-                position.lineNumber,
-                Math.max(1, position.column - noteQuery.replacementText.length),
-                position.lineNumber,
-                position.column
-              ),
-              sortText: `0-${String(index).padStart(4, "0")}`
-            })
-          );
-
-          return { suggestions };
-        }
-
-        if (!isArticleDocument(activeDocument)) {
-          return { suggestions: [] };
-        }
-        const snippetLanguage = getSnippetLanguageForEditor(model, position);
-        const snippetState = resolveEditorSnippetState(linePrefix, snippetLanguage, normalizedConfig);
-        const suggestions = snippetState.matches.map(
-          ({ prefix, replacementText, snippet }) => ({
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            label: { label: snippet.name, description: prefix },
-            filterText: `${prefix} ${snippet.name} ${snippet.description ?? ""}`.trim(),
-            insertText: toSnippetBody(snippet.body),
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            range: new monaco.Range(
-              position.lineNumber,
-              Math.max(1, position.column - replacementText.length),
-              position.lineNumber,
-              position.column
-            ),
-            sortText: `0-${String(9999 - replacementText.length).padStart(4, "0")}-${String(prefix.length).padStart(4, "0")}-${prefix}`
-          })
-        );
-        return { suggestions };
-      }
-    });
     const domNode = editor.getDomNode();
     const textarea = domNode?.querySelector<HTMLTextAreaElement>("textarea.inputarea");
-    const getSnippetController = () =>
-      editor.getContribution("snippetController2");
+    const getSnippetController = () => editor.getSnippetController();
+    const clearFinishedSnippet = () => finishedSnippetEditors.delete(editor);
+    const snippetContentDisposable = editor.onDidChangeModelContent(clearFinishedSnippet);
+    const snippetCursorDisposable = editor.onDidChangeCursorPosition(clearFinishedSnippet);
     const insertSnippet = (snippet: EditorSnippet) => {
       getSnippetController()?.insert(toSnippetBody(snippet.body));
     };
@@ -408,8 +322,7 @@ export function useEditorIntegration({
       const snippetController = getSnippetController();
       const snippetLanguage =
         model && position && isArticleDocument(activeDocument) ? getSnippetLanguageForEditor(model, position) : "markdown";
-      // Engines that can report their own feature state (CodeMirror's
-      // completion state) win over the Monaco-specific DOM probe.
+      // Engines that can report their own feature state win over the DOM probe.
       const featureState = editor.getEditorFeatureState?.();
 
       return {
@@ -540,10 +453,15 @@ export function useEditorIntegration({
         .map((keybinding) => keybinding.command.slice(1));
       const snippetController = getSnippetController();
 
+      if (event.key === "Tab" && event.shiftKey && finishedSnippetEditors.has(editor)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       if (
         event.key === "Tab" &&
-        (snippetController?.isInSnippet?.() ?? false) &&
-        removedCommands.includes("acceptSelectedSuggestion")
+        (snippetController?.isInSnippet?.() ?? false)
       ) {
         event.preventDefault();
         event.stopPropagation();
@@ -552,6 +470,9 @@ export function useEditorIntegration({
           event.shiftKey ? "jumpToPrevSnippetPlaceholder" : "jumpToNextSnippetPlaceholder",
           {}
         );
+        if (!event.shiftKey && !(snippetController?.isInSnippet?.() ?? false)) {
+          finishedSnippetEditors.add(editor);
+        }
         return;
       }
 
@@ -680,8 +601,9 @@ export function useEditorIntegration({
     textarea?.addEventListener("paste", pasteListener, true);
     window.addEventListener("paste", pasteListener, true);
     return () => {
-      completionProvider.dispose();
       typeDisposable.dispose();
+      snippetContentDisposable.dispose();
+      snippetCursorDisposable.dispose();
       domNode?.removeEventListener("keydown", keydownListener, true);
       domNode?.removeEventListener("paste", pasteListener, true);
       textarea?.removeEventListener("paste", pasteListener, true);

@@ -1,5 +1,6 @@
-import { acceptCompletion, completionKeymap, nextSnippetField, prevSnippetField } from "@codemirror/autocomplete";
+import { acceptCompletion, completionKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
+import { deleteMarkupBackward } from "@codemirror/lang-markdown";
 import { foldKeymap } from "@codemirror/language";
 import { openSearchPanel, searchKeymap, selectNextOccurrence } from "@codemirror/search";
 import { EditorSelection, Prec, type Extension, type StateCommand } from "@codemirror/state";
@@ -7,6 +8,8 @@ import { EditorView, keymap, type Command } from "@codemirror/view";
 
 import { acceptAiGhostSuggestion, clearAiGhostSuggestion } from "./cm-inline-completion";
 import { tabCompleteFromDocument } from "./cm-tab-completion";
+import { clearCmSnippet, nextCmSnippetField, prevCmSnippetField } from "./cm-snippets";
+import { orderedListEnterCommand } from "./cm-ordered-list";
 
 /**
  * Keymap stack for the "live" (CodeMirror 6) editor engine.
@@ -28,8 +31,8 @@ import { tabCompleteFromDocument } from "./cm-tab-completion";
 // structurally, so commands can be invoked with the view directly.
 const runStateCommand = (command: StateCommand): Command => (view) => command(view);
 
-const nextSnippetFieldCommand = runStateCommand(nextSnippetField);
-const prevSnippetFieldCommand = runStateCommand(prevSnippetField);
+const nextSnippetFieldCommand = runStateCommand(nextCmSnippetField);
+const prevSnippetFieldCommand = runStateCommand(prevCmSnippetField);
 const indentMoreCommand = runStateCommand(indentMore);
 const indentLessCommand = runStateCommand(indentLess);
 const selectNextOccurrenceCommand = runStateCommand(selectNextOccurrence);
@@ -108,8 +111,11 @@ export const cmKeymap: Extension = [
     // would otherwise lose to defaultKeymap's insertNewlineAndIndent. It
     // returns false when no panel is open, so fall-through stays intact.
     ...completionKeymap,
+    { key: "Enter", run: runStateCommand(orderedListEnterCommand) },
+    { key: "Backspace", run: runStateCommand(deleteMarkupBackward) },
     ...defaultKeymap,
     // Lower priority than completionKeymap's Escape (close panel first).
+    { key: "Escape", run: clearCmSnippet },
     { key: "Escape", run: clearAiGhostSuggestion }
   ])
 ];

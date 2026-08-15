@@ -5,7 +5,7 @@ import {
   createInitialMarkdownMathContextState,
   scanMarkdownMathLine,
   tokenizeLatexMathFragment
-} from "./markdown-math-tokenization";
+} from "./markdown-math-scanner";
 
 function getTokenScopeAtOffset(
   tokens: ReturnType<typeof tokenizeLatexMathFragment>,

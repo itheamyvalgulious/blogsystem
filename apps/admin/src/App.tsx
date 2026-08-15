@@ -1,7 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { loader } from "@monaco-editor/react";
 import * as monacoEditor from "monaco-editor";
-import "monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2.js";
 import "katex/dist/katex.min.css";
 import { getErrorMessage, type ThemeCssAssetConfig } from "@blog-system/content-core";
 import "./monaco-environment";
@@ -21,10 +20,7 @@ import {
   type TreePayload,
   type UsageStatsPayload
 } from "./api";
-import {
-  installMarkdownMathTokenization,
-  type MathPair
-} from "./markdown-math-tokenization";
+import type { MathPair } from "./markdown-math-scanner";
 import {
   parseStoredCollapsedTreePaths,
   parseStoredFilePaneFilters,
@@ -80,7 +76,6 @@ import { useFileDialogOperations } from "./workbench/hooks/use-file-dialog-opera
 import { usePreviewSync } from "./workbench/hooks/use-preview-sync";
 import { parsePreviewSourceForDocument } from "./workbench/preview-utils";
 import { setWorkbenchLivePreviewContext } from "./workbench/codemirror/cm-context";
-import { getPreferredEditorEngine } from "./workbench/codemirror/engine-select";
 import { useUsageStatsTracking } from "./workbench/hooks/use-usage-stats-tracking";
 import { useWorkbenchApi } from "./workbench/hooks/use-workbench-api";
 import { useWorkbenchPersistence } from "./workbench/hooks/use-workbench-persistence";
@@ -120,7 +115,6 @@ import {
 } from "./workbench/workbench-layout";
 
 loader.config({ monaco: monacoEditor });
-void installMarkdownMathTokenization(monacoEditor);
 
 const PREVIEW_UPDATE_DEBOUNCE_MS = 50;
 
@@ -141,12 +135,7 @@ export function App() {
     plugins: "plugin-manager"
   });
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [previewVisible, setPreviewVisible] = useState(
-    // The CodeMirror "live" engine renders previews inline (live preview
-    // mosaic), so the side preview pane starts hidden there; the Monaco
-    // engine keeps the original default (visible). Ctrl+\ still toggles.
-    () => getPreferredEditorEngine() === "monaco"
-  );
+  const [previewVisible, setPreviewVisible] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? 280));
   const [previewWidth, setPreviewWidth] = useState(() => Number(window.localStorage.getItem(PREVIEW_WIDTH_STORAGE_KEY) ?? 420));
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -226,7 +215,6 @@ export function App() {
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const editorRef = useRef<WorkbenchEditorHandle | null>(null);
   const editorServicesRef = useRef<EditorEngineServices | null>(null);
-  const monacoRef = useRef<typeof monacoEditor | null>(null);
   const headingsRef = useRef<CachedHeading[]>([]);
   const mathPairsRef = useRef<MathPair[]>([]);
   const dirtyCheckTimerRef = useRef<number | null>(null);
@@ -758,7 +746,6 @@ export function App() {
   const { handleEditorMount } = useEditorIntegration({
     activeDocument,
     activeEditorContribution,
-    activeTheme,
     articleCursorStatesRef,
     editorReadyVersion,
     editorRef,
@@ -769,7 +756,6 @@ export function App() {
     lastStoredArticleLineNumberRef,
     loadTree,
     mathPairsRef,
-    monacoRef,
     normalizedConfig,
     pendingArticleRevealRef,
     pluginRuntime,

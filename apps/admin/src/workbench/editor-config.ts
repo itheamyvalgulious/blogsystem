@@ -1,9 +1,8 @@
 import { normalizeEditorConfig } from "@blog-system/content-core";
 
+import { DEFAULT_LATEX_SNIPPETS } from "../default-latex-snippets";
 import type { EditorConfigPayload } from "../api";
-import { jsonSchemas } from "../editor-config-schema";
 import { normalizeWorkbenchSnippets } from "../snippet-scope";
-import { getJsonSchemaPaths } from "./document-builders";
 import type { NormalizedEditorConfig } from "./types";
 
 export const emptyConfigPayload: EditorConfigPayload = {
@@ -58,20 +57,13 @@ export function buildNormalizedEditorConfig(configPayload: EditorConfigPayload |
   const payload = configPayload ?? emptyConfigPayload;
   return {
     markdownSnippets: normalizeWorkbenchSnippets(payload.markdownSnippets, "markdown"),
-    latexSnippets: normalizeWorkbenchSnippets(payload.latexSnippets, "latex"),
+    // Built-ins are merged only into the runtime view of the config.  The
+    // raw payload remains user-owned, so saving the config never writes these
+    // defaults back to the workspace file.
+    latexSnippets: normalizeWorkbenchSnippets(
+      [...DEFAULT_LATEX_SNIPPETS, ...payload.latexSnippets],
+      "latex"
+    ),
     keybindings: [...DEFAULT_KEYBINDINGS, ...normalizeEditorConfig({ snippets: [], keybindings: payload.keybindings }).keybindings]
   };
-}
-
-export function getJsonSchemaDefinitions() {
-  const paths = getJsonSchemaPaths();
-  return [
-    { uri: "inmemory://schemas/snippets.json", fileMatch: [paths.markdownSnippetsPath, paths.latexSnippetsPath], schema: jsonSchemas.snippetSchema as object },
-    { uri: "inmemory://schemas/keybindings.json", fileMatch: [paths.keybindingsPath], schema: jsonSchemas.keybindingSchema as object },
-    { uri: "inmemory://schemas/editor-associations.json", fileMatch: [paths.editorAssociationsPath], schema: jsonSchemas.editorAssociationsSchema as object },
-    { uri: "inmemory://schemas/markdown-blocks.json", fileMatch: [paths.markdownBlockConfigPath], schema: jsonSchemas.markdownBlockConfigSchema as object },
-    { uri: "inmemory://schemas/theme-group.json", fileMatch: ["config/theme/*/theme.json"], schema: jsonSchemas.themeGroupConfigSchema as object },
-    { uri: "inmemory://schemas/site.json", fileMatch: [paths.siteConfigPath], schema: jsonSchemas.siteConfigSchema as object },
-    { uri: "inmemory://schemas/ai-completion.json", fileMatch: [paths.aiCompletionConfigPath], schema: jsonSchemas.aiCompletionConfigSchema as object },
-  ];
 }

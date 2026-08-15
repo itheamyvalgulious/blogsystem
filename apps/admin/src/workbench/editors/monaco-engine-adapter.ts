@@ -3,7 +3,6 @@ import type * as monacoEditor from "monaco-editor";
 import {
   EditorOption,
   type EditorEngineServices,
-  type SnippetControllerHandle,
   type WorkbenchEditorHandle
 } from "../editor-engine";
 
@@ -59,8 +58,9 @@ export function createMonacoEditorHandle(
     getDomNode: () => editor.getDomNode(),
     hasTextFocus: () => editor.hasTextFocus(),
     focus: () => editor.focus(),
-    getContribution: (id) =>
-      editor.getContribution(id) as unknown as SnippetControllerHandle | null,
+    // Custom snippet insertion belongs to the Markdown CodeMirror path.
+    // Monaco is intentionally a basic non-Markdown editor here.
+    getSnippetController: () => null,
     getOption: (option) => {
       switch (option) {
         case "readOnly":

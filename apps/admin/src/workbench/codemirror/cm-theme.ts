@@ -3,7 +3,17 @@ import { Compartment, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 
+import {
+  clampEditorFontSize,
+  handleEditorZoomKeydown,
+  readEditorFontSize
+} from "../editor-zoom";
 import type { ThemeDefinition } from "../types";
+
+// The document lines and their gutter elements must use the same line box.
+// CodeMirror gives gutter entries explicit pixel heights, so changing the
+// font size also needs a fresh measurement after this value takes effect.
+export const CM_EDITOR_LINE_HEIGHT = "1.5";
 
 /**
  * CodeMirror theming for the workbench "live" editor engine.
@@ -35,12 +45,12 @@ export function createCmBaseTheme(): Extension {
       backgroundColor: "var(--wb-bg-elevated)",
       color: "var(--wb-foreground)",
       fontFamily: "'Cascadia Code', 'Fira Code', monospace",
-      fontSize: "14px",
+      fontSize: "var(--wb-editor-font-size, 14px)",
       height: "100%"
     },
     ".cm-content": {
       caretColor: "var(--wb-accent-strong)",
-      lineHeight: "1.5",
+      lineHeight: CM_EDITOR_LINE_HEIGHT,
       padding: "8px 0"
     },
     ".cm-cursor, .cm-dropCursor": {
@@ -66,7 +76,12 @@ export function createCmBaseTheme(): Extension {
     ".cm-gutters": {
       backgroundColor: "var(--wb-bg-elevated)",
       border: "none",
-      color: "var(--wb-foreground-muted)"
+      color: "var(--wb-foreground-muted)",
+      fontSize: "var(--wb-editor-font-size, 14px)",
+      lineHeight: CM_EDITOR_LINE_HEIGHT
+    },
+    ".cm-gutterElement": {
+      lineHeight: CM_EDITOR_LINE_HEIGHT
     },
     ".cm-activeLineGutter": {
       backgroundColor: "color-mix(in srgb, var(--wb-bg-active) 55%, transparent)",
@@ -96,12 +111,6 @@ export function createCmBaseTheme(): Extension {
     ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {
       backgroundColor: "var(--wb-bg-active)",
       color: "var(--wb-foreground)"
-    },
-    ".cm-snippetField": {
-      backgroundColor: "var(--wb-info-bg)"
-    },
-    ".cm-snippetFieldPosition": {
-      outline: "1px solid var(--wb-accent)"
     },
     ".cm-ai-ghost": {
       color: "var(--wb-foreground-muted)",
@@ -401,9 +410,58 @@ export function buildCmThemeExtension(themeDef: ThemeDefinition): Extension {
 // --- registry / live-view reconfiguration ----------------------------------
 
 const cmThemeCompartment = new Compartment();
+// Reconfiguring this theme compartment marks CodeMirror's line geometry as
+// stale. Merely changing an inline CSS variable does not do that when the
+// editor's overall DOM height remains unchanged.
+const cmFontMeasureCompartment = new Compartment();
 const definedCmThemes = new Map<string, Extension>();
 const liveCmViews = new Set<EditorView>();
 let activeCmThemeExtension: Extension | null = null;
+
+function createCmFontMeasureExtension(fontSize: number): Extension {
+  return EditorView.theme({
+    "&": {
+      "--wb-editor-font-measure": String(clampEditorFontSize(fontSize))
+    }
+  });
+}
+
+function composeCmThemeExtensions(extension: Extension): Extension[] {
+  return [extension, cmEditorZoomExtension, cmFontMeasureCompartment.of([])];
+}
+
+function setCmEditorFontSize(view: EditorView, fontSize: number): void {
+  const normalizedFontSize = clampEditorFontSize(fontSize);
+  view.dom.style.setProperty("--wb-editor-font-size", `${normalizedFontSize}px`);
+  // A measurement request alone can keep cached line heights when the editor
+  // fills a fixed-height container. Reconfiguring this inert theme extension
+  // marks content geometry dirty, so the gutter is rebuilt immediately after
+  // the font-size change rather than waiting for cursor movement.
+  view.dispatch({
+    effects: cmFontMeasureCompartment.reconfigure(createCmFontMeasureExtension(normalizedFontSize))
+  });
+  view.requestMeasure();
+}
+
+function getCmEditorFontSize(view: EditorView): number {
+  const inlineValue = Number.parseFloat(view.dom.style.getPropertyValue("--wb-editor-font-size"));
+  return Number.isFinite(inlineValue) ? clampEditorFontSize(inlineValue) : readEditorFontSize();
+}
+
+function applyCmEditorFontSize(fontSize: number): void {
+  for (const view of liveCmViews) {
+    setCmEditorFontSize(view, fontSize);
+  }
+}
+
+const cmEditorZoomExtension = EditorView.domEventHandlers({
+  keydown: (event, view) =>
+    handleEditorZoomKeydown(
+      event as KeyboardEvent,
+      () => getCmEditorFontSize(view),
+      applyCmEditorFontSize
+    )
+});
 
 /** Registers a theme extension under the workbench theme id (idempotent). */
 export function defineCmTheme(themeDef: ThemeDefinition): void {
@@ -423,7 +481,9 @@ export function applyCmTheme(themeId: string): void {
   }
   activeCmThemeExtension = extension;
   for (const view of liveCmViews) {
-    view.dispatch({ effects: cmThemeCompartment.reconfigure(extension) });
+    view.dispatch({
+      effects: cmThemeCompartment.reconfigure(composeCmThemeExtensions(extension))
+    });
   }
 }
 
@@ -432,7 +492,7 @@ export function applyCmTheme(themeId: string): void {
  * start from the currently active theme.
  */
 export function getCmThemeCompartmentExtension(): Extension {
-  return cmThemeCompartment.of(activeCmThemeExtension ?? createCmBaseTheme());
+  return cmThemeCompartment.of(composeCmThemeExtensions(activeCmThemeExtension ?? createCmBaseTheme()));
 }
 
 /**
@@ -442,13 +502,16 @@ export function getCmThemeCompartmentExtension(): Extension {
  */
 export function syncCmThemeToView(view: EditorView): void {
   if (activeCmThemeExtension) {
-    view.dispatch({ effects: cmThemeCompartment.reconfigure(activeCmThemeExtension) });
+    view.dispatch({
+      effects: cmThemeCompartment.reconfigure(composeCmThemeExtensions(activeCmThemeExtension))
+    });
   }
 }
 
 /** cm-editor registers/unregisters live views so theme switches reach them. */
 export function registerCmThemeView(view: EditorView): () => void {
   liveCmViews.add(view);
+  setCmEditorFontSize(view, readEditorFontSize());
   return () => {
     liveCmViews.delete(view);
   };

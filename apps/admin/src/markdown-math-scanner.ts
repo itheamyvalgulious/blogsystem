@@ -1,5 +1,3 @@
-import type * as monacoEditor from "monaco-editor";
-
 export type MarkdownMathMode = "inline" | "block";
 
 export interface MarkdownMathContextState {
@@ -16,13 +14,6 @@ export interface MarkdownMathRange {
 export interface MarkdownMathScanResult {
   mathRanges: MarkdownMathRange[];
   nextState: MarkdownMathContextState;
-}
-
-interface TokenLike {
-  offset?: number;
-  scopes?: string;
-  startIndex?: number;
-  type?: string;
 }
 
 function getFenceMarker(line: string) {
@@ -273,7 +264,12 @@ export function scanMarkdownMathLine(
   };
 }
 
-function pushToken(tokens: monacoEditor.languages.IToken[], startIndex: number, scopes: string) {
+export interface MarkdownMathToken {
+  scopes: string;
+  startIndex: number;
+}
+
+function pushToken(tokens: MarkdownMathToken[], startIndex: number, scopes: string) {
   const lastToken = tokens[tokens.length - 1];
   if (lastToken && lastToken.scopes === scopes) {
     return;
@@ -282,75 +278,12 @@ function pushToken(tokens: monacoEditor.languages.IToken[], startIndex: number, 
   tokens.push({ scopes, startIndex });
 }
 
-function normalizeTokens(tokens: readonly TokenLike[]): monacoEditor.languages.IToken[] {
-  return tokens.map((token, index) => ({
-    scopes: token.scopes ?? token.type ?? "",
-    startIndex: index === 0 ? 0 : Math.max(0, token.startIndex ?? token.offset ?? 0)
-  }));
-}
-
-function findTokenIndexAtOffset(tokens: monacoEditor.languages.IToken[], offset: number) {
-  if (tokens.length === 0) {
-    return -1;
-  }
-
-  let low = 0;
-  let high = tokens.length - 1;
-  let match = 0;
-
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const token = tokens[middle];
-
-    if (!token) {
-      break;
-    }
-
-    if (token.startIndex <= offset) {
-      match = middle;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
-  }
-
-  return match;
-}
-
-function appendBaseTokens(
-  result: monacoEditor.languages.IToken[],
-  baseTokens: monacoEditor.languages.IToken[],
-  startIndex: number,
-  endIndex: number
-) {
-  if (startIndex >= endIndex) {
-    return;
-  }
-
-  const baseTokenIndex = findTokenIndexAtOffset(baseTokens, startIndex);
-  if (baseTokenIndex === -1) {
-    pushToken(result, startIndex, "");
-    return;
-  }
-
-  const currentToken = baseTokens[baseTokenIndex];
-  pushToken(result, startIndex, currentToken?.scopes ?? "");
-
-  for (let index = baseTokenIndex + 1; index < baseTokens.length; index += 1) {
-    const token = baseTokens[index];
-    if (!token || token.startIndex >= endIndex) {
-      break;
-    }
-
-    pushToken(result, token.startIndex, token.scopes);
-  }
-}
-
+/** Classifies a LaTeX fragment without depending on an editor engine. */
 export function tokenizeLatexMathFragment(
   fragment: string,
   startIndex = 0
-): monacoEditor.languages.IToken[] {
-  const tokens: monacoEditor.languages.IToken[] = [];
+): MarkdownMathToken[] {
+  const tokens: MarkdownMathToken[] = [];
   let index = 0;
 
   while (index < fragment.length) {
@@ -402,7 +335,7 @@ export function tokenizeLatexMathFragment(
       continue;
     }
 
-    const bracketMatch = /^[[\]{}()]/.exec(remaining);
+    const bracketMatch = /^(?:\[|\]|[{}()])/.exec(remaining);
     if (bracketMatch) {
       pushToken(tokens, startIndex + index, "delimiter");
       index += bracketMatch[0].length;
@@ -425,145 +358,4 @@ export function tokenizeLatexMathFragment(
   }
 
   return tokens;
-}
-
-function overlayMathTokens(
-  line: string,
-  baseTokens: monacoEditor.languages.IToken[],
-  mathRanges: MarkdownMathRange[]
-) {
-  const result: monacoEditor.languages.IToken[] = [];
-  let cursor = 0;
-
-  for (const range of mathRanges) {
-    const startIndex = Math.max(cursor, Math.min(line.length, range.startIndex));
-    const endIndex = Math.max(startIndex, Math.min(line.length, range.endIndex));
-
-    appendBaseTokens(result, baseTokens, cursor, startIndex);
-
-    const mathFragment = line.slice(startIndex, endIndex);
-    for (const token of tokenizeLatexMathFragment(mathFragment, startIndex)) {
-      pushToken(result, token.startIndex, token.scopes);
-    }
-
-    cursor = endIndex;
-  }
-
-  appendBaseTokens(result, baseTokens, cursor, line.length);
-
-  return result.length > 0 ? result : baseTokens;
-}
-
-class MarkdownMathOverlayState implements monacoEditor.languages.IState {
-  constructor(
-    readonly baseState: monacoEditor.languages.IState,
-    readonly mathState: MarkdownMathContextState,
-    readonly lineNumber: number = 0
-  ) {}
-
-  clone() {
-    return new MarkdownMathOverlayState(this.baseState.clone(), { ...this.mathState }, this.lineNumber);
-  }
-
-  equals(other: monacoEditor.languages.IState) {
-    if (!(other instanceof MarkdownMathOverlayState)) {
-      return false;
-    }
-
-    return (
-      this.baseState.equals(other.baseState) &&
-      this.mathState.inFenceMarker === other.mathState.inFenceMarker &&
-      this.mathState.inMath === other.mathState.inMath &&
-      this.lineNumber === other.lineNumber
-    );
-  }
-}
-
-let markdownMathTokenizerInstallPromise: Promise<void> | null = null;
-
-export function installMarkdownMathTokenization(monaco: typeof monacoEditor) {
-  if (markdownMathTokenizerInstallPromise) {
-    return markdownMathTokenizerInstallPromise;
-  }
-
-  markdownMathTokenizerInstallPromise = (async () => {
-    const { TokenizationRegistry } = (await import(
-      "monaco-editor/esm/vs/editor/common/languages.js"
-    )) as {
-      TokenizationRegistry: {
-        getOrCreate(languageId: string): Promise<unknown>;
-      };
-    };
-    const baseTokenizer = await TokenizationRegistry.getOrCreate("markdown");
-    if (
-      !baseTokenizer ||
-      typeof (baseTokenizer as { getInitialState?: unknown }).getInitialState !== "function" ||
-      typeof (baseTokenizer as { tokenize?: unknown }).tokenize !== "function"
-    ) {
-      return;
-    }
-
-    const tokenizationSupport = baseTokenizer as {
-      getInitialState(): monacoEditor.languages.IState;
-      tokenize(
-        line: string,
-        hasEOL: boolean,
-        state: monacoEditor.languages.IState
-      ): { endState: monacoEditor.languages.IState; tokens: TokenLike[] };
-    };
-
-    monaco.languages.setTokensProvider("markdown", {
-      getInitialState() {
-        return new MarkdownMathOverlayState(
-          tokenizationSupport.getInitialState(),
-          createInitialMarkdownMathContextState(),
-          0
-        );
-      },
-      tokenize(line, state) {
-        const overlayState =
-          state instanceof MarkdownMathOverlayState
-            ? state
-            : new MarkdownMathOverlayState(
-                tokenizationSupport.getInitialState(),
-                createInitialMarkdownMathContextState(),
-                0
-              );
-
-        const currentLine = overlayState.lineNumber + 1;
-        const baseResult = tokenizationSupport.tokenize(line, true, overlayState.baseState);
-        const baseTokens = normalizeTokens(baseResult.tokens);
-
-        const cachedRanges = findMathRangesForLine(currentLine);
-        let mathRanges: MarkdownMathRange[];
-
-        if (cachedRanges.length > 0) {
-          mathRanges = cachedRanges.map((pair) => ({
-            startIndex: pair.startLine === currentLine ? pair.startCol - 1 : 0,
-            endIndex: pair.endLine === currentLine ? pair.endCol : line.length,
-            mode: (pair.startLine === pair.endLine ? "inline" : "block") as MarkdownMathMode
-          }));
-        } else {
-          const localResult = scanMarkdownMathLine(line, { inFenceMarker: overlayState.mathState.inFenceMarker, inMath: null });
-          mathRanges = localResult.mathRanges;
-        }
-
-        const nextFenceState = scanMarkdownMathLine(line, { inFenceMarker: overlayState.mathState.inFenceMarker, inMath: null });
-
-        return {
-          endState: new MarkdownMathOverlayState(
-            baseResult.endState,
-            { inFenceMarker: nextFenceState.nextState.inFenceMarker, inMath: null },
-            currentLine
-          ),
-          tokens:
-            mathRanges.length > 0
-              ? overlayMathTokens(line, baseTokens, mathRanges)
-              : baseTokens
-        };
-      }
-    });
-  })();
-
-  return markdownMathTokenizerInstallPromise;
 }

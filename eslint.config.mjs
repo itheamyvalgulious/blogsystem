@@ -12,7 +12,8 @@ export default tseslint.config(
       "**/coverage/**",
       "**/public/**",
       "**/quiver/**",
-      ".mimocode/**"
+      ".mimocode/**",
+      ".remember/**"
     ]
   },
   js.configs.recommended,

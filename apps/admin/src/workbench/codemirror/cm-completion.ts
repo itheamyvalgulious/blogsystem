@@ -1,6 +1,6 @@
 import {
   autocompletion,
-  snippet,
+  closeCompletion,
   snippetCompletion,
   type Completion,
   type CompletionContext,
@@ -10,7 +10,7 @@ import type { EditorState, Extension } from "@codemirror/state";
 
 import type { ArticleSummary } from "@blog-system/content-core";
 
-import { scanDocumentMathPairs } from "../../markdown-math-tokenization";
+import { scanDocumentMathPairs } from "../../markdown-math-scanner";
 import {
   resolveActiveSnippetMatches,
   type SnippetCompletionMatch
@@ -27,10 +27,10 @@ import {
 } from "../project-task-utils";
 import { positionAt } from "./cm-handle";
 import { getWorkbenchCompletionContext } from "./cm-context";
+import { insertCmSnippet } from "./cm-snippets";
 
 /**
- * Workbench completion source for the CodeMirror "live" engine, mirroring the
- * Monaco completion item provider in hooks/use-editor-integration.ts:
+ * Workbench completion source for the CodeMirror "live" engine:
  *
  * - project-task documents get `@note/...` article reference suggestions
  *   (type "reference", insert `@note/<title> `);
@@ -38,13 +38,12 @@ import { getWorkbenchCompletionContext } from "./cm-context";
  *   `resolveActiveSnippetMatches` (word + structured prefixes, latex-context
  *   markdown carry-over), inserted as CM snippets (same template syntax).
  *
- * Both result sets are pre-filtered/pre-sorted exactly like the Monaco side
- * (which supplies its own filterText/sortText), so CM filtering is disabled
- * (`filter: false`) and the returned order is preserved.
+ * Both result sets are pre-filtered and pre-sorted, so CM filtering is
+ * disabled (`filter: false`) and the returned order is preserved.
  *
  * The snippet language (markdown vs latex) is derived by rescanning the
- * document's math pairs at query time instead of reading the Monaco-side
- * cache — self-contained and always in sync with the current buffer.
+ * document's math pairs at query time, keeping the source self-contained and
+ * always in sync with the current buffer.
  *
  * No monaco imports: this module must stay loadable in Node test runs.
  */
@@ -59,7 +58,7 @@ function getLinePrefix(state: EditorState, pos: number): string {
 }
 
 /**
- * Matches the Monaco provider's sortText ordering:
+ * Matches the stable completion ordering:
  * `0-${9999 - replacementText.length}-${prefix.length}-${prefix}` — longest
  * matched replacement first, then shortest prefix, then prefix alphabetical.
  */
@@ -79,7 +78,7 @@ function compareSnippetMatches(left: SnippetCompletionMatch, right: SnippetCompl
 /**
  * Pure option construction for snippet matches (exported for tests). Each
  * option is a `snippetCompletion` so the body is expanded with the shared
- * CM/Monaco snippet template syntax ($1, ${1:placeholder}, $0).
+ * snippet template syntax ($1, ${1:placeholder}, $0).
  */
 export function buildSnippetCompletionOptions(matches: SnippetCompletionMatch[]): Completion[] {
   return [...matches].sort(compareSnippetMatches).map((match) => {
@@ -89,11 +88,24 @@ export function buildSnippetCompletionOptions(matches: SnippetCompletionMatch[])
       label: match.snippet.name,
       type: "snippet"
     });
-    // Monaco gives every suggestion its own replacement range (the matched
-    // prefix, which differs per prefix within one result); a CM result shares
-    // a single range, so each option re-applies its own span here.
+    // Each suggestion has its own replacement range (the matched prefix,
+    // which differs per prefix within one result); a CM result shares a single
+    // range, so each option re-applies its own span here. Use the actual caret
+    // position as the source of truth. The completion range can still be the
+    // empty trigger position for symbol prefixes such as `$`.
     option.apply = (view, completion, _from, to) => {
-      snippet(body)(view, completion, to - match.replacementText.length, to);
+      const actualTo = view.state.selection.main.head;
+      const actualFrom = actualTo - match.replacementText.length;
+      const rangeMatchesTypedText =
+        actualFrom >= 0 && view.state.sliceDoc(actualFrom, actualTo) === match.replacementText;
+      const replacementTo = rangeMatchesTypedText ? actualTo : to;
+      const replacementFrom = replacementTo - match.replacementText.length;
+      insertCmSnippet(view, body, replacementFrom, replacementTo);
+      // A custom apply function bypasses CodeMirror's normal completion
+      // transaction, so close the suggestion panel explicitly. Leaving it
+      // open lets the next typed character participate in the old completion
+      // range instead of the newly active snippet field.
+      closeCompletion(view);
     };
     return option;
   });

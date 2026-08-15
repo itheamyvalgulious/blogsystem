@@ -1,5 +1,12 @@
 import type { PluginDefinition } from "../types";
 
+export {
+  getListContinuationPrefix,
+  getOrderedListRenumberEdits,
+  renumberOrderedLists
+} from "../ordered-list";
+export type { OrderedListRenumberEdit } from "../ordered-list";
+
 const BRACKET_PAIRS: Record<string, string> = {
   "(": ")",
   "[": "]",
@@ -8,12 +15,10 @@ const BRACKET_PAIRS: Record<string, string> = {
   "|": "|"
 };
 
-const LIST_PREFIX_PATTERN = /^(\d+\.\s|[-*+]\s)/;
-
 export const editorConveniencePlugin: PluginDefinition = {
   id: "editor-convenience",
   label: "Editor Convenience",
-  description: "Bracket wrapping, list continuation, and bold shortcut.",
+  description: "Bracket wrapping and bold shortcut.",
   activate(context) {
     context.registerEditorAction({
       id: "editor.markdown.set_bold",
@@ -102,34 +107,12 @@ export const editorConveniencePlugin: PluginDefinition = {
             return;
           }
 
-          if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
-            const position = editor.getPosition();
-            if (!position) return;
-
-            const lineContent = model.getLineContent(position.lineNumber);
-            const beforeCursor = lineContent.slice(0, position.column - 1);
-            const match = LIST_PREFIX_PATTERN.exec(beforeCursor);
-            if (!match) return;
-
-            if (beforeCursor.trim() === match[1].trim()) {
-              return;
-            }
-
-            event.preventDefault();
-            event.stopPropagation();
-
-            const prefix = match[1];
-            const eol = model.getEOL();
-            editor.executeEdits("list-continue", [{
-              range: new services.Range(position.lineNumber, position.column, position.lineNumber, position.column),
-              text: eol + prefix
-            }]);
-            editor.revealPosition(editor.getPosition()!);
-          }
         };
 
         domNode.addEventListener("keydown", keydownHandler, true);
-        return () => domNode.removeEventListener("keydown", keydownHandler, true);
+        return () => {
+          domNode.removeEventListener("keydown", keydownHandler, true);
+        };
       }
     });
   }

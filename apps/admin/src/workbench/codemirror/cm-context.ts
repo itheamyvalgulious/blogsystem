@@ -5,13 +5,10 @@ import type { MarkdownFenceRendererFeatureDefinition, NormalizedSnippet, Workben
 /**
  * Module-level data feed for the CodeMirror completion source.
  *
- * The Monaco completion provider closes over React state (active document,
- * normalized snippets, article summaries) at registration time; the CM
- * autocompletion source lives in shared, mount-independent extensions and
- * therefore cannot close over hooks. Instead the workbench integration hook
- * pushes the same data here whenever it changes (mirroring the timing of the
- * Monaco provider's effect dependencies), and the source reads it lazily at
- * query time.
+ * The CM autocompletion source lives in shared, mount-independent extensions
+ * and therefore cannot close over React hooks. The workbench integration hook
+ * pushes the current data here whenever it changes, and the source reads it
+ * lazily at query time.
  *
  * No monaco imports: this module must stay loadable in Node test runs.
  */

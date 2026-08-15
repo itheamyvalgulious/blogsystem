@@ -16,7 +16,7 @@ import { positionAt } from "./cm-handle";
 
 /**
  * AI inline completion ("ghost text") for the CodeMirror "live" engine,
- * mirroring the Monaco provider in src/ai-inline-completion.ts.
+ * using the shared request and status helpers in src/ai-inline-completion.ts.
  *
  * Flow: after every document/selection change a 300ms debounce fires a
  * request (state-reference compared, so superseded schedules never hit the
@@ -29,7 +29,7 @@ import { positionAt } from "./cm-handle";
  *
  * The extension is only mounted on markdown editors (all CM instances are
  * markdown) and requests only fire while the AI completion status is
- * enabled — same gating as the Monaco side.
+ * enabled — the same status gate used by the shared request path.
  *
  * No monaco imports: this module must stay loadable in Node test runs.
  */

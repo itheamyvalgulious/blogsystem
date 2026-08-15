@@ -1,18 +1,11 @@
-import { getPreferredEditorEngine } from "../codemirror/engine-select";
 import { CmMarkdownEditor, type CmMarkdownEditorProps } from "../codemirror/cm-editor";
 import type { WorkbenchEditorComponentProps } from "../types";
-import { MonacoMarkdownEditor } from "./monaco-markdown-editor";
 import { WorkbenchMonacoEditor } from "./workbench-monaco-editor";
 
-/**
- * Engine dispatch for workbench editors: documents edited as markdown go to
- * the CodeMirror "live" engine when it is the preferred engine (see
- * codemirror/engine-select.ts); everything else keeps the Monaco path
- * untouched.
- */
+/** Markdown is always edited by CodeMirror; Monaco is reserved for non-Markdown text. */
 
 export function WorkbenchEditorHost(props: WorkbenchEditorComponentProps) {
-  if (props.document.language === "markdown" && getPreferredEditorEngine() === "live") {
+  if (props.document.language === "markdown") {
     const editorKey = `${props.document.id}:${props.document.editorId}`;
     return (
       <CmMarkdownEditor
@@ -36,14 +29,10 @@ export function WorkbenchEditorHost(props: WorkbenchEditorComponentProps) {
  * the embedded goal/body editors in project-editors.tsx.
  */
 export function MarkdownEditorHost(props: CmMarkdownEditorProps) {
-  if (getPreferredEditorEngine() === "live") {
-    return (
-      <CmMarkdownEditor
-        key={props.editorKey ?? `${props.path}:${props.language ?? "markdown"}`}
-        {...props}
-      />
-    );
-  }
-
-  return <MonacoMarkdownEditor {...props} />;
+  return (
+    <CmMarkdownEditor
+      key={props.editorKey ?? `${props.path}:${props.language ?? "markdown"}`}
+      {...props}
+    />
+  );
 }

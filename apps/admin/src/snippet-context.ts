@@ -2,7 +2,7 @@ import {
   createInitialMarkdownMathContextState,
   scanMarkdownMathLine,
   type MathPair
-} from "./markdown-math-tokenization";
+} from "./markdown-math-scanner";
 import type { SnippetLanguageId } from "./workbench/types";
 
 export function getSnippetLanguageAtOffset(text: string, offset: number): SnippetLanguageId {

@@ -1,10 +1,7 @@
-import type * as monacoEditor from "monaco-editor";
-
 import { api } from "./api";
-import { getCachedMathPairs } from "./markdown-math-tokenization";
+import { getCachedMathPairs } from "./markdown-math-scanner";
 import { getSnippetLanguageFromMathPairs } from "./snippet-context";
 
-const AI_COMPLETION_DEBOUNCE_MS = 300;
 // Small context + small budget keep upstream latency low (inline completion
 // must feel instant); ~100 tokens of context, a short suffix for line ends.
 const AI_COMPLETION_PREFIX_CHARS = 400;
@@ -24,7 +21,6 @@ export interface AiCompletionRequestInput {
 
 const DISABLED_STATUS: AiCompletionStatus = { enabled: false, model: "", baseUrl: "" };
 
-let installed = false;
 let cachedStatus: AiCompletionStatus | null = null;
 let refreshInFlight = false;
 let lastRefreshFailedAt: number | null = null;
@@ -74,7 +70,7 @@ export function getAiCompletionStatusWithRetry(): AiCompletionStatus | null {
 }
 
 /**
- * Pure context extraction shared by the Monaco and CodeMirror inline
+ * Pure context extraction shared by the CodeMirror inline
  * completion integrations: up to 2000 chars before / 500 chars after the
  * cursor, plus the snippet language at the cursor derived from the cached
  * math pairs (markdown vs latex).
@@ -96,8 +92,7 @@ export function buildAiCompletionRequestInput(
 
 /**
  * Shared request wrapper: resolves to the completion text, or null when the
- * server returned an empty completion or the request failed (silent except
- * for a console.debug, same as the Monaco provider).
+ * server returned an empty completion or the request failed.
  */
 export async function requestAiCompletionText(
   input: AiCompletionRequestInput
@@ -109,58 +104,4 @@ export async function requestAiCompletionText(
     console.debug("AI inline completion request failed.", error);
     return null;
   }
-}
-
-export function installAiInlineCompletion(monaco: typeof monacoEditor): () => void {
-  if (installed) {
-    return () => {};
-  }
-  installed = true;
-  void refreshAiCompletionStatus();
-
-  const provider = monaco.languages.registerInlineCompletionsProvider("markdown", {
-    freeInlineCompletions() {},
-    async provideInlineCompletions(model, position, _context, token) {
-      if (!getAiCompletionStatusWithRetry()?.enabled) {
-        return { items: [] };
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, AI_COMPLETION_DEBOUNCE_MS));
-
-      if (token.isCancellationRequested || !getAiCompletionStatusWithRetry()?.enabled) {
-        return { items: [] };
-      }
-
-      const input = buildAiCompletionRequestInput(
-        model.getValue(),
-        model.getOffsetAt(position),
-        position.lineNumber,
-        position.column
-      );
-
-      const completion = await requestAiCompletionText(input);
-      if (token.isCancellationRequested || completion === null) {
-        return { items: [] };
-      }
-
-      return {
-        items: [
-          {
-            insertText: completion,
-            range: new monaco.Range(
-              position.lineNumber,
-              position.column,
-              position.lineNumber,
-              position.column
-            )
-          }
-        ]
-      };
-    }
-  });
-
-  return () => {
-    provider.dispose();
-    installed = false;
-  };
 }

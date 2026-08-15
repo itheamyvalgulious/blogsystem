@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { EditorState } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 import type { ArticleSummary } from "@blog-system/content-core";
 
 import type { SnippetCompletionMatch } from "../../snippet-completion";
@@ -9,6 +11,7 @@ import {
   buildNoteReferenceOptions,
   buildSnippetCompletionOptions
 } from "./cm-completion";
+import { cmSnippetExtension, getCmSnippetState } from "./cm-snippets";
 
 function makeSnippet(name: string, prefix: string[], body: string | string[] = "body"): NormalizedSnippet {
   return { body, environment: "markdown", name, prefix };
@@ -68,6 +71,42 @@ test("buildSnippetCompletionOptions does not mutate the input order", () => {
     matches.map((match) => match.snippet.name),
     ["b", "a"]
   );
+});
+
+test("inline dollar snippet replaces the trigger and types into $1", () => {
+  const [option] = buildSnippetCompletionOptions([
+    makeMatch("inline latex", "$", "$", " $$1$ $0")
+  ]);
+  let state = EditorState.create({
+    doc: "$",
+    extensions: [cmSnippetExtension],
+    selection: { anchor: 1 }
+  });
+  const view = {
+    get state() {
+      return state;
+    },
+    dispatch(spec: Parameters<EditorState["update"]>[0]) {
+      state = state.update(spec).state;
+    }
+  } as unknown as EditorView;
+
+  if (typeof option.apply !== "function") {
+    throw new Error("Snippet completion must expose a custom apply function.");
+  }
+  option.apply(view, option, 1, 1);
+  assert.equal(state.doc.toString(), " $$ ");
+  assert.deepEqual(
+    { from: state.selection.main.from, to: state.selection.main.to },
+    { from: 2, to: 2 }
+  );
+  assert.equal(getCmSnippetState(state)?.kind, "active");
+
+  state = state.update({
+    changes: { from: 2, to: 2, insert: "a" },
+    selection: { anchor: 3 }
+  }).state;
+  assert.equal(state.doc.toString(), " $a$ ");
 });
 
 test("buildNoteReferenceOptions filters and shapes @note references", () => {

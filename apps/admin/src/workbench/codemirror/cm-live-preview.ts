@@ -9,8 +9,9 @@ import {
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate, type WidgetType } from "@codemirror/view";
 
 import { markdownLanguage } from "@codemirror/lang-markdown";
+import { foldNodeProp } from "@codemirror/language";
 import type { MarkdownConfig } from "@lezer/markdown";
-import { scanDocumentMathPairs } from "../../markdown-math-tokenization";
+import { scanDocumentMathPairs } from "../../markdown-math-scanner";
 import { hashText } from "../../utils";
 import {
   getWorkbenchLivePreviewContext,
@@ -37,6 +38,7 @@ import {
   isInCursorRegion,
   readingModeRefresh
 } from "./cm-reading-mode";
+import { foldListItem, foldMarkdownParagraph } from "./cm-ordered-list";
 
 /**
  * WYSIWYG "live preview" mosaic for the CodeMirror engine.
@@ -382,6 +384,16 @@ function findClosingDoubleDollar(text: string, from: number): number {
  * base tree keeps the setext/heading tests meaningful.
  */
 export const cmMathMarkdown: MarkdownConfig = {
+  // lang-markdown's built-in ListItem fold includes CommonMark's lazy,
+  // unindented continuation paragraphs.  The editor keeps that syntax for
+  // rendering, but uses the narrower list-item fold range from
+  // `foldListItem` so ordinary following text is not folded into the list.
+  props: [
+    foldNodeProp.add({
+      ListItem: foldListItem,
+      Paragraph: foldMarkdownParagraph
+    })
+  ],
   defineNodes: [{ name: "InlineMath" }, { name: "DisplayMath", block: true }],
   parseBlock: [
     {
@@ -1340,6 +1352,22 @@ export function findVisualRowWrapEnd(
   return topAtHi !== null && topAtHi > rowTop + tolerance ? hi : to;
 }
 
+/**
+ * Avoid placing an inline-math band on the caret position at the end of a
+ * line whose remaining source is only trailing whitespace.  In that layout
+ * the full-width widget and CM's zero-width caret share the same boundary;
+ * moving the band back to the formula end leaves the trailing spaces and the
+ * line-end caret independently addressable.
+ */
+export function resolveInlineMathBandAnchor(
+  doc: Text,
+  formulaTo: number,
+  measuredWrapEnd: number
+): number {
+  const line = doc.lineAt(formulaTo);
+  return /^[ \t]*$/.test(doc.sliceString(formulaTo, line.to)) ? formulaTo : measuredWrapEnd;
+}
+
 /** Exported for headless tests. */
 export const setInlineMathWrapEnds = StateEffect.define<ReadonlyMap<number, number>>();
 
@@ -1812,27 +1840,28 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
     // and let the next measurement lock the wrong anchor in — the layout
     // stays clean, so measurement always lands on the natural wrap end).
     //
-    // side: -1 (cursor association): the anchor offset doubles as both the
-    // band's position and the first text position of the row after the
-    // band. With the default side the caret prefers the widget's UPSTREAM
-    // side at that offset, so vertical motion with the goal column at the
-    // line's left edge skipped the text row right after the band in one
-    // press (observed at 880px). side: -1 makes the caret land on the
-    // downstream (after-band) side instead, and every visual row stays
-    // reachable step by step. Visual placement is identical either way.
+    // The anchor offset doubles as both the band's position and the first
+    // text position of the row after the band. A positive side keeps a caret
+    // at that offset upstream of the full-width preview widget; a negative
+    // side would put the caret after the widget at the preview row's far
+    // right edge.
     const lastFormula = group.formulas[group.formulas.length - 1];
     const wrapEnd = wrapEnds.get(lastFormula.from);
     if (wrapEnd === undefined) {
       continue;
     }
+    const anchor = resolveInlineMathBandAnchor(state.doc, lastFormula.to, wrapEnd);
     decorations.push(
       Decoration.widget({
         widget: createInlineMathRowWidget(
           key,
           group.formulas.map((formula) => ({ from: formula.from, tex: formula.tex }))
         ),
-        side: -1
-      }).range(wrapEnd)
+        // A positive side draws the widget after a cursor at the same offset.
+        // The row is full-width, so a negative side would put the cursor
+        // after the preview row at its far right edge.
+        side: 1
+      }).range(anchor)
     );
   }
 

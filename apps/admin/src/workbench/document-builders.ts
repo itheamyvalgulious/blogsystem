@@ -112,18 +112,6 @@ export function getConfigDocumentTitle(kind: ConfigDocumentKind) {
   }
 }
 
-export function getJsonSchemaPaths() {
-  return {
-    markdownSnippetsPath: CONFIG_DOCUMENT_META.markdownSnippets.path,
-    latexSnippetsPath: CONFIG_DOCUMENT_META.latexSnippets.path,
-    keybindingsPath: CONFIG_DOCUMENT_META.keybindings.path,
-    editorAssociationsPath: CONFIG_DOCUMENT_META.editorAssociations.path,
-    markdownBlockConfigPath: MARKDOWN_BLOCK_CONFIG_DOCUMENT_META.path,
-    siteConfigPath: SITE_CONFIG_DOCUMENT_META.path,
-    aiCompletionConfigPath: AI_COMPLETION_CONFIG_DOCUMENT_META.path
-  };
-}
-
 export function getDocumentPath(document: WorkbenchDocument | null, fallbackPath: string | null) {
   if (!document) {
     return fallbackPath ?? "";

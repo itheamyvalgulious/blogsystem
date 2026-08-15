@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ThemeDefinition } from "../types";
-import { resolveCmThemeColors } from "./cm-theme";
+import { CM_EDITOR_LINE_HEIGHT, resolveCmThemeColors } from "./cm-theme";
+
+test("gutter and document rows share the editor line-height", () => {
+  assert.equal(CM_EDITOR_LINE_HEIGHT, "1.5");
+});
 
 function makeTheme(overrides: Partial<ThemeDefinition["monacoTheme"]>): ThemeDefinition {
   return {

@@ -1,34 +1,4 @@
-import type * as Monaco from "monaco-editor";
-
 import type { EditorKeybinding } from "@blog-system/content-core";
-
-const keyCodeMap: Record<string, number> = {
-  Enter: 3,
-  Tab: 2,
-  Escape: 9,
-  Space: 10,
-  Backspace: 1,
-  Delete: 20,
-  Home: 14,
-  End: 13,
-  PageUp: 11,
-  PageDown: 12,
-  ArrowLeft: 15,
-  ArrowUp: 16,
-  ArrowRight: 17,
-  ArrowDown: 18,
-  Slash: 85,
-  Minus: 83,
-  Equal: 81,
-  Backquote: 86,
-  BracketLeft: 92,
-  BracketRight: 94,
-  Semicolon: 80,
-  Quote: 79,
-  Comma: 84,
-  Period: 82,
-  Backslash: 95
-};
 
 const codeToKeyMap: Record<string, string> = {
   Enter: "Enter",
@@ -124,22 +94,6 @@ function normalizeKeyPart(rawPart: string): string | null {
   return canonical ?? null;
 }
 
-function getLetterKeyCode(monaco: typeof Monaco, part: string): number | undefined {
-  if (/^[A-Z]$/.test(part)) {
-    return monaco.KeyCode[`Key${part}` as keyof typeof monaco.KeyCode] as number;
-  }
-
-  if (/^\d$/.test(part)) {
-    return monaco.KeyCode[`Digit${part}` as keyof typeof monaco.KeyCode] as number;
-  }
-
-  if (/^F\d{1,2}$/.test(part)) {
-    return monaco.KeyCode[part as keyof typeof monaco.KeyCode] as number;
-  }
-
-  return undefined;
-}
-
 export function normalizeKeyString(keyString: string): string | null {
   const rawParts = keyString
     .split("+")
@@ -177,60 +131,6 @@ export function normalizeKeyString(keyString: string): string | null {
   );
 
   return [...orderedModifiers, key].join("+");
-}
-
-export function parseMonacoKeybinding(
-  monaco: typeof Monaco,
-  keyString: string
-): number | null {
-  const normalized = normalizeKeyString(keyString);
-
-  if (!normalized) {
-    return null;
-  }
-
-  const parts = normalized.split("+");
-
-  if (parts.length === 0) {
-    return null;
-  }
-
-  let modifiers = 0;
-  let keyCode: number | undefined;
-
-  for (const rawPart of parts) {
-    if (rawPart === "Ctrl") {
-      modifiers |= monaco.KeyMod.CtrlCmd;
-      continue;
-    }
-
-    if (rawPart === "CtrlOrMeta") {
-      modifiers |= monaco.KeyMod.CtrlCmd;
-      continue;
-    }
-
-    if (rawPart === "Shift") {
-      modifiers |= monaco.KeyMod.Shift;
-      continue;
-    }
-
-    if (rawPart === "Alt") {
-      modifiers |= monaco.KeyMod.Alt;
-      continue;
-    }
-
-    if (rawPart === "Meta") {
-      modifiers |= monaco.KeyMod.WinCtrl;
-      continue;
-    }
-
-    keyCode =
-      getLetterKeyCode(monaco, rawPart) ??
-      keyCodeMap[rawPart] ??
-      keyCodeMap[`${rawPart[0]?.toUpperCase() ?? ""}${rawPart.slice(1)}`];
-  }
-
-  return keyCode ? modifiers | keyCode : null;
 }
 
 function keyFromKeyboardEvent(event: Pick<KeyboardEvent, "code" | "key">): string | null {

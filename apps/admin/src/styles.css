@@ -825,8 +825,13 @@ a {
 /* CodeMirror ("live" engine) editor container; the .cm-editor inside is sized
    by the CM theme (cm-theme.ts). */
 .cm-editor-host {
+  --wb-editor-font-size: 14px;
   height: 100%;
   min-height: 0;
+}
+
+.cm-editor-host .cm-editor {
+  font-size: var(--wb-editor-font-size, 14px);
 }
 
 .project-editor__embedded-editor .cm-editor-host {

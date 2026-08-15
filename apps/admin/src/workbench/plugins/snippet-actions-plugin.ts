@@ -47,7 +47,7 @@ export const snippetActionsPlugin: PluginDefinition = {
         );
 
         editor.setSelection(range);
-        const controller = editor.getContribution("snippetController2");
+        const controller = editor.getSnippetController();
 
         if (!controller) {
           return false;
