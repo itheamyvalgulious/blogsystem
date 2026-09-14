@@ -1,4 +1,4 @@
-import { WidgetType, type EditorView } from "@codemirror/view";
+import { WidgetType, type EditorView, type Rect } from "@codemirror/view";
 import katex from "katex";
 
 import {
@@ -227,8 +227,10 @@ export function computeInlineMathFormulaLayout(
 }
 
 /**
- * Inline-math preview band: an INLINE (non-block) widget placed right after
- * the formula group's last formula end. The row's DOM is an inline-level
+ * Inline-math preview band: an INLINE (non-block) widget anchored at the
+ * natural wrap end of the formula group's visual row (see
+ * resolveInlineMathBandAnchor — `side: -1`, i.e. just BEFORE the first
+ * position of the following row). The row's DOM is an inline-level
  * full-width box (`display: inline-block; width: 100%`, see
  * .cm-lp-inline-math-row): it never fits the current line box's remaining
  * space, so CSS line breaking gives it a line box of its own directly under
@@ -246,6 +248,13 @@ export function computeInlineMathFormulaLayout(
  * path. For the same reason there is no `estimatedHeight` override: that
  * value only feeds the block-widget height map, which no longer exists for
  * this widget.
+ *
+ * R4 — do NOT go back to a `side: 1` anchor at the wrap end. With side 1 the
+ * boundary position resolved (assoc -1) to the PREVIOUS row's last
+ * character, so vertical motion from below the band skipped the following
+ * row and visually jumped the caret to the formula row's end. `side: -1`
+ * plus the coordsAt override below keep every landing on the row the caret
+ * is visually on.
  *
  * Boxes stay IN NORMAL FLOW (inline-block) so the row's natural height is
  * correct the moment CM measures it — an earlier absolute-position design
@@ -303,6 +312,55 @@ export class InlineMathRowWidget extends WidgetType {
     this.view = view;
     this.scheduleLayout(dom, view);
     return true;
+  }
+
+  /**
+   * Coordinates for positions resolving INTO the widget tile — the band
+   * anchor offset (the decoration is registered `side: -1` on wrapped rows,
+   * so "before the widget" landings arrive here with side < 0). The default
+   * would return the full-width band rect, which draws the caret on the
+   * preview row's far right edge; instead:
+   * - side < 0 (End-like landings at the anchor) → the caret renders at the
+   *   END of the PRECEDING content (the formula row's last char) — exactly
+   *   how CM draws a caret at a wrapped-line boundary;
+   * - side >= 0 → a zero-width rect at the band row's left edge (the honest
+   *   "between rows" spot).
+   * Vertical cursor motion and clicks that approach the anchor from below
+   * resolve with assoc +1 into the following text tile and never reach this
+   * hook, so they keep landing on the next row's first character (the band
+   * row itself is never a caret destination).
+   *
+   * The preceding content is measured with a raw DOM Range — the hook runs
+   * inside CM's update/measure phases too, where `view.coordsAtPos` is
+   * forbidden ("Reading the editor layout isn't allowed during an update").
+   * The hook's `pos` argument is the offset INTO the widget (always 0 for
+   * this zero-length widget), hence no doc position is needed here.
+   */
+  override coordsAt(dom: HTMLElement, _pos: number, side: number): Rect | null {
+    if (side < 0) {
+      let node: Node | null = dom.previousSibling;
+      // CM inserts a zero-width buffer img between text and uneditable
+      // widgets; the content end lives one node further back. (Duck-typed:
+      // headless runs have no Element global and never reach the Range.)
+      if (node && (node as Element).classList?.contains("cm-widgetBuffer")) {
+        node = node.previousSibling;
+      }
+      if (node) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        range.collapse(false);
+        const rects = range.getClientRects();
+        const last = rects.length > 0 ? rects[rects.length - 1] : null;
+        if (last && last.bottom > last.top) {
+          return { left: last.right, right: last.right, top: last.top, bottom: last.bottom };
+        }
+      }
+    }
+    const rect = dom.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      return null;
+    }
+    return { left: rect.left, right: rect.left, top: rect.top, bottom: rect.bottom };
   }
 
   private scheduleLayout(row: HTMLElement, view: EditorView): void {

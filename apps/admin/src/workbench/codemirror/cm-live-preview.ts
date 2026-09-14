@@ -1358,14 +1358,35 @@ export function findVisualRowWrapEnd(
  * the full-width widget and CM's zero-width caret share the same boundary;
  * moving the band back to the formula end leaves the trailing spaces and the
  * line-end caret independently addressable.
+ *
+ * Returns the anchor offset together with the widget decoration `side`:
+ * - trailing-whitespace rest → anchor at the formula end, `side: 1` (the
+ *   widget is the line's LAST inline content, so assoc -1 still resolves to
+ *   the source row's last character and the line-end caret keeps its native
+ *   rendering);
+ * - wrapped row → anchor at the measured wrap end (the first position of the
+ *   row AFTER the band), `side: -1` (the widget sits BEFORE that position's
+ *   text — identical DOM, but assoc -1 now resolves into the widget whose
+ *   `coordsAt` pins the caret to the band row's left edge instead of the
+ *   PREVIOUS row's last character). With the old `side: 1` anchor the
+ *   boundary position rendered at the formula row's end, so vertical cursor
+ *   motion from below the band skipped the following row and visually jumped
+ *   the caret to the formula row's end.
  */
+export interface InlineMathBandAnchor {
+  anchor: number;
+  side: -1 | 1;
+}
+
 export function resolveInlineMathBandAnchor(
   doc: Text,
   formulaTo: number,
   measuredWrapEnd: number
-): number {
+): InlineMathBandAnchor {
   const line = doc.lineAt(formulaTo);
-  return /^[ \t]*$/.test(doc.sliceString(formulaTo, line.to)) ? formulaTo : measuredWrapEnd;
+  return /^[ \t]*$/.test(doc.sliceString(formulaTo, line.to))
+    ? { anchor: formulaTo, side: 1 }
+    : { anchor: measuredWrapEnd, side: -1 };
 }
 
 /** Exported for headless tests. */
@@ -1841,26 +1862,27 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
     // stays clean, so measurement always lands on the natural wrap end).
     //
     // The anchor offset doubles as both the band's position and the first
-    // text position of the row after the band. A positive side keeps a caret
-    // at that offset upstream of the full-width preview widget; a negative
-    // side would put the caret after the widget at the preview row's far
-    // right edge.
+    // text position of the row after the band. resolveInlineMathBandAnchor
+    // picks the side: `side: -1` on a wrapped row keeps the boundary caret
+    // OFF the formula row's end for motion arriving from below (assoc +1
+    // resolves into the following text, landing on the next row's first
+    // character — verified in-browser), so ArrowUp/Down no longer skip the
+    // row after the band; End-like assoc -1 landings render at the preceding
+    // row's end via the widget's coordsAt hook, exactly like a native wrap
+    // boundary.
     const lastFormula = group.formulas[group.formulas.length - 1];
     const wrapEnd = wrapEnds.get(lastFormula.from);
     if (wrapEnd === undefined) {
       continue;
     }
-    const anchor = resolveInlineMathBandAnchor(state.doc, lastFormula.to, wrapEnd);
+    const { anchor, side } = resolveInlineMathBandAnchor(state.doc, lastFormula.to, wrapEnd);
     decorations.push(
       Decoration.widget({
         widget: createInlineMathRowWidget(
           key,
           group.formulas.map((formula) => ({ from: formula.from, tex: formula.tex }))
         ),
-        // A positive side draws the widget after a cursor at the same offset.
-        // The row is full-width, so a negative side would put the cursor
-        // after the preview row at its far right edge.
-        side: 1
+        side
       }).range(anchor)
     );
   }
