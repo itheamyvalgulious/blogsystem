@@ -41,7 +41,7 @@ export const tagsPlugin: SitePagePluginDefinition = {
             .map((article) => renderArticleCard(article, context.basePrefix))
             .join("")}</div></section>`;
         await context.writeHtml(
-          `tags/${encodeURIComponent(tag.tag)}/index.html`,
+          `tags/${tag.tag}/index.html`,
           renderPageWithContext(context, {
             basePath: context.basePrefix,
             content: body,

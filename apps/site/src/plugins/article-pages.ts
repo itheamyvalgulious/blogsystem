@@ -121,8 +121,12 @@ export const articlePagesPlugin: SitePagePluginDefinition = {
             </section>`;
         }
 
+        const relativeArticlePath = decodeURIComponent(
+          `${summary.urlPath.replace(context.basePrefix, "").replace(/^\/+/, "")}index.html`
+        );
+
         await context.writeHtml(
-          `${summary.urlPath.replace(context.basePrefix, "").replace(/^\/+/, "")}index.html`,
+          relativeArticlePath,
           renderPageWithContext(context, {
             basePath: context.basePrefix,
             content: body,

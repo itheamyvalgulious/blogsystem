@@ -217,6 +217,57 @@ Body with <script>alert(2)</script> markup.`,
   await fs.rm(fixture.root, { recursive: true, force: true });
 });
 
+test("buildSite writes article and tag pages under decoded directory names", async () => {
+  const fixture = await createWorkspaceFixture();
+  const distDir = path.join(fixture.root, "dist");
+
+  await fs.mkdir(path.join(fixture.contentRoot, "math analysis 3"), { recursive: true });
+  await fs.writeFile(
+    path.join(fixture.contentRoot, "math analysis 3", "ma3-homework-1.md"),
+    `---
+title: Math Analysis 3 Homework 1
+tags:
+  - spaced tag
+status: published
+---
+
+# Math Analysis 3 Homework 1
+
+Body.`,
+    "utf8"
+  );
+
+  await buildSite({
+    assetsRoot: fixture.assetsRoot,
+    configRoot: fixture.configRoot,
+    contentRoot: fixture.contentRoot,
+    distDir,
+    projectRoot: fixture.root,
+    workspaceRoot: fixture.workspaceRoot,
+    basePath: ""
+  });
+
+  const articleHtml = await fs.readFile(
+    path.join(distDir, "posts", "math analysis 3", "math-analysis-3-homework-1", "index.html"),
+    "utf8"
+  );
+  const homeHtml = await fs.readFile(path.join(distDir, "index.html"), "utf8");
+  const tagHtml = await fs.readFile(path.join(distDir, "tags", "spaced tag", "index.html"), "utf8");
+  const treeHtml = await fs.readFile(path.join(distDir, "tree", "math analysis 3", "index.html"), "utf8");
+
+  assert.match(articleHtml, /Math Analysis 3 Homework 1/);
+  assert.match(homeHtml, /\/posts\/math%20analysis%203\/math-analysis-3-homework-1\//);
+  assert.match(homeHtml, /\/tags\/spaced%20tag\//);
+  assert.match(tagHtml, /Math Analysis 3 Homework 1/);
+  assert.match(treeHtml, /Math Analysis 3 Homework 1/);
+  await assert.rejects(
+    fs.access(path.join(distDir, "posts", "math%20analysis%203")),
+    (error: NodeJS.ErrnoException) => error.code === "ENOENT"
+  );
+
+  await fs.rm(fixture.root, { recursive: true, force: true });
+});
+
 test("buildSite rejects protected articles when protected-content is omitted from enabledPlugins", async () => {
   const fixture = await createWorkspaceFixture();
   const distDir = path.join(fixture.root, "dist");
