@@ -56,7 +56,7 @@ export function useDocumentDrafts({
   const computeDocumentDirtyState = useCallback(
     (document: WorkbenchDocument, nextValue: string) =>
       pluginRuntime.getEditorContribution(document.editorId)?.isDirty?.(document, nextValue) ??
-      nextValue !== document.savedValue,
+      nextValue !== document.value,
     [pluginRuntime]
   );
 
@@ -75,7 +75,7 @@ export function useDocumentDrafts({
               return document;
             }
 
-            const nextValue = draftValuesRef.current[document.id] ?? document.savedValue;
+            const nextValue = draftValuesRef.current[document.id] ?? document.value;
             const shouldBeDirty = computeDocumentDirtyState(document, nextValue);
             if (document.dirty === shouldBeDirty) {
               return document;

@@ -31,6 +31,7 @@ import {
 } from "../document-builders";
 import { emptyConfigPayload } from "../editor-config";
 import type {
+  ArticleWorkbenchDocument,
   WorkbenchDocument,
   WorkbenchEditorId
 } from "../types";
@@ -93,7 +94,6 @@ export function useDocumentSavers({
   setPublishConfigPayload,
   setSiteConfigPayload,
   siteConfigPayload,
-  syncEditorValuePreservingView,
   withResolvedEditor
 }: DocumentSaversOptions) {
   const saveProjectChildDocument = async <TDocument extends WorkbenchDocument, TPayload>(
@@ -328,11 +328,21 @@ export function useDocumentSavers({
           buildArticleDocument(savedArticle),
           activeDocument.editorId
         );
-        draftValuesRef.current[savedDocument.id] = savedDocument.value;
-        setDocuments((current) => upsertDocument(current, savedDocument));
+        // The editor keeps showing exactly what the user typed. Writing the
+        // server-normalized content back would replace the whole document —
+        // the browser kernel then shifts the scroll position one frame after
+        // any JS restore (scroll anchoring / selection sync), which surfaced
+        // as a visible jump on every save. value/draft therefore keep the
+        // editor text while savedValue records what is on disk; the
+        // frontmatter-level difference realigns on the next document open.
+        const editorPreservedDocument: ArticleWorkbenchDocument = {
+          ...savedDocument,
+          value: currentValue
+        };
+        draftValuesRef.current[savedDocument.id] = currentValue;
+        setDocuments((current) => upsertDocument(current, editorPreservedDocument));
         setActiveDocumentId(savedDocument.id);
-        syncEditorValuePreservingView(savedDocument.value);
-        schedulePreviewSourceUpdate(savedDocument.value, { immediate: true });
+        schedulePreviewSourceUpdate(currentValue, { immediate: true });
         await loadTree();
       } else if (activeDocument.kind === "project") {
         await saveProjectWorkbenchDocument();

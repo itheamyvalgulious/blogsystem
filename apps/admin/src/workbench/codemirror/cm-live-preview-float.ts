@@ -56,8 +56,10 @@ import { attachPreviewJumpHandlers } from "./cm-live-preview-widgets";
  * because every binding from cm-live-preview.ts is only touched inside
  * functions, never at module evaluation time.
  *
- * Known trade-offs (accepted): panels overlay the text beneath them —
- * clicks there hit the panel, not the source.
+ * Vertical fit: panels taller than their source block fall back to the
+ * in-flow below-source preview (computeLivePreviewFloatVerticalFit), so
+ * floating panels never overlay following text vertically — each panel
+ * stays within its own source block's vertical span, center-anchored.
  *
  * No monaco imports: this module must stay loadable in Node test runs.
  */
@@ -155,6 +157,20 @@ export function reconcileFloatWidth(
     return { kind: "grow", width: contentScrollW };
   }
   return { kind: "keep", width: currentW };
+}
+
+/**
+ * Vertical fit for a floating panel: a panel taller than its source block
+ * would either scroll (clamped) or overlay the text below (unclamped), so it
+ * falls back to the in-flow below-source preview, which reserves real layout
+ * height. `tolerance` absorbs sub-pixel measurement noise.
+ */
+export function computeLivePreviewFloatVerticalFit(
+  panelHeight: number,
+  sourceHeight: number,
+  tolerance = 2
+): "float" | "below" {
+  return panelHeight <= sourceHeight + tolerance ? "float" : "below";
 }
 
 export interface LivePreviewFloatAnchor {
@@ -517,6 +533,18 @@ export function getCmLivePreviewFloatExtension(): Extension {
           if (reconciliation.kind === "grow") {
             this.naturalWidths.set(descriptor.key, reconciliation.width);
           }
+
+          // Vertical fit: a panel taller than its source block would scroll
+          // or overlay following text — fall back to the in-flow below-source
+          // preview instead. Source height from the line-block anchors.
+          const fromBlock = this.view.lineBlockAt(range.from);
+          const toBlock = this.view.lineBlockAt(range.to);
+          const sourceHeight = toBlock.bottom - fromBlock.top;
+          if (computeLivePreviewFloatVerticalFit(entry.panel.offsetHeight, sourceHeight) === "below") {
+            belowKeys.add(descriptor.key);
+            continue;
+          }
+
           floatCandidates.push({ key: descriptor.key, range, entry });
           entry.panel.style.left = `${fit.left}px`;
           entry.panel.style.width = `${reconciliation.width}px`;

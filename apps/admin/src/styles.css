@@ -838,6 +838,14 @@ a {
   min-height: 240px;
 }
 
+/* Chrome's scroll anchoring "compensates" scrollTop whenever content above
+   the anchor changes height — with live-preview widgets that is constant
+   noise (and a visible jump on save-time document replacement). CM manages
+   its own scroll positioning; anchoring must not interfere. */
+.cm-scroller {
+  overflow-anchor: none;
+}
+
 /* Live preview ("WYSIWYG mosaic") decorations for the CodeMirror engine,
    see workbench/codemirror/cm-live-preview.ts.
 
@@ -1070,16 +1078,17 @@ a {
 
 /* Floating preview panel (wide editors), positioned absolutely by
    cm-live-preview-float.ts. Frameless like the below-source previews: no
-   border/background/shadow, just the content; scrolls beyond 40vh. Lives
-   outside CM's height map, so padding/margins here don't affect metrics. */
+   border/background/shadow, just the content. Lives outside CM's height map,
+   so padding/margins here don't affect metrics. The vertical fit rule in
+   cm-live-preview-float.ts guarantees a floated panel is never taller than
+   its source block, so no vertical clamp/scrollbar is needed; overflow-y:auto
+   stays as an inert safety (no height cap → no scrollbar). */
 .cm-lp-float {
   position: absolute;
-  max-height: 40vh;
   /* The relayout reconcile pass grows the panel to the content's real
      scrollWidth (and anything genuinely wider goes below), so content
      always fits: hide the horizontal scrollbar outright instead of letting
-     sub-pixel overflow surface one. Vertical scrolling for tall panels is
-     kept. */
+     sub-pixel overflow surface one. */
   overflow-x: hidden;
   overflow-y: auto;
   z-index: 5;

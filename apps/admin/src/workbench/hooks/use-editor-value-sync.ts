@@ -6,6 +6,13 @@ export function useEditorValueSync(
   editorRef: RefObject<WorkbenchEditorHandle | null>,
   editorServicesRef: RefObject<EditorEngineServices | null>
 ) {
+  /**
+   * Full-document replacement that preserves scroll position. The
+   * replacement is performed as a single executeEdits range-replacement.
+   * Kernel scroll corrections (scroll anchoring, selection-driven scrolling)
+   * that fire one or two frames after the dispatch are re-asserted over two
+   * requestAnimationFrame callbacks to keep the replacement scroll-neutral.
+   */
   const syncEditorValuePreservingView = useCallback((nextValue: string) => {
     const editor = editorRef.current;
     const services = editorServicesRef.current;
@@ -58,6 +65,19 @@ export function useEditorValueSync(
 
     editor.setScrollTop(scrollTop);
     editor.setScrollLeft(scrollLeft);
+
+    // Kernel scroll corrections (scroll anchoring, selection-driven
+    // scrolling) land one or two frames AFTER the replacement dispatch —
+    // the synchronous restore above runs too early. Re-assert the saved
+    // offsets for a couple of frames so the replacement is visually
+    // scroll-neutral.
+    for (let frame = 0; frame < 2; frame += 1) {
+      window.requestAnimationFrame(() => {
+        editor.setScrollTop(scrollTop);
+        editor.setScrollLeft(scrollLeft);
+      });
+    }
+
     editor.focus();
   }, []);
 

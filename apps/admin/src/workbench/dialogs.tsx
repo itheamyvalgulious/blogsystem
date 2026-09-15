@@ -191,7 +191,7 @@ export function TitleConflictDialog({ state, onClose, onContinue }: TitleConflic
     <div className="dialog-backdrop" onClick={onClose} role="presentation">
       <div className="dialog-card" onClick={(event) => event.stopPropagation()}>
         <p className="title-overline">Duplicate Title</p>
-        <h2>Article title already exists</h2>
+        <h2>An article with this title already exists in this folder</h2>
         <p className="body-muted">
           "{state.fileDialog.value}" already appears in these articles:
         </p>

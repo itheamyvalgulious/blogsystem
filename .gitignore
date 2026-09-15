@@ -22,4 +22,5 @@ config/admin.local.json
 temp.png
 config.json
 # 由 scripts/sync-quiver.mjs 生成，权威副本在 packages/commutative/vendor/quiver/
-apps/admin/public/quiver
+apps/admin/public/quiver/
+.opencode
