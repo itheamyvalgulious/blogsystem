@@ -1,8 +1,10 @@
+import { spawnSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { blake3 } from "@noble/hashes/blake3";
 import { bytesToHex } from "@noble/hashes/utils";
 import { getErrorMessage } from "@blog-system/content-core";
+import { ProxyAgent, setGlobalDispatcher } from "undici";
 
 import type {
   CloudflareTargetConfig,
@@ -14,9 +16,20 @@ import { PublishTargetError } from "./types.js";
 
 const TARGET_ID = "cloudflare";
 const API_ROOT = "https://api.cloudflare.com/client/v4";
+const API_HOSTNAME = "api.cloudflare.com";
 const UPLOAD_BATCH_SIZE = 100;
 const UPLOAD_CONCURRENCY = 5;
 const MAX_BASE64_CHUNK_BYTES = 24 * 1024 * 1024;
+const PROXY_ENV_KEYS = [
+  "HTTPS_PROXY",
+  "https_proxy",
+  "ALL_PROXY",
+  "all_proxy",
+  "HTTP_PROXY",
+  "http_proxy"
+];
+const WINDOWS_INTERNET_SETTINGS_KEY =
+  "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 
 interface FileEntry {
   absPath: string;
@@ -93,16 +106,170 @@ function buildManifest(files: FileEntry[]): Record<string, string> {
   );
 }
 
-async function cfFetch<T>(url: string, init: RequestInit, phase: string): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(url, init);
-  } catch (error) {
+export function normalizeProxyUrl(candidate: string): string | undefined {
+  const value = candidate.trim();
+  if (!value) {
+    return undefined;
+  }
+
+  if (/^socks/i.test(value)) {
+    return undefined;
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  return `http://${value}`;
+}
+
+export function parseWindowsProxyServer(rawProxyServer: string): string | undefined {
+  const value = rawProxyServer.trim();
+  if (!value) {
+    return undefined;
+  }
+
+  const parts = value
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const perProtocol = parts.filter((part) => /^[a-z-]+=./i.test(part));
+
+  if (perProtocol.length > 0) {
+    const httpsEntry = perProtocol.find((part) => /^https=/i.test(part));
+    return httpsEntry ? normalizeProxyUrl(httpsEntry.slice("https=".length)) : undefined;
+  }
+
+  return normalizeProxyUrl(parts[0] ?? "");
+}
+
+export function proxyBypassed(hostname: string, noProxyValue: string | undefined): boolean {
+  const entries = (noProxyValue ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (entries.includes("*")) {
+    return true;
+  }
+
+  const host = hostname.toLowerCase();
+  return entries.some((entry) => {
+    const normalized = entry.startsWith(".") ? entry.slice(1) : entry;
+    return host === normalized || host.endsWith(`.${normalized}`);
+  });
+}
+
+let cachedWindowsProxy: string | undefined | null = null;
+
+function readWindowsSystemProxy(): string | undefined {
+  if (process.platform !== "win32") {
+    return undefined;
+  }
+
+  if (cachedWindowsProxy !== null) {
+    return cachedWindowsProxy ?? undefined;
+  }
+
+  const query = (value: string) =>
+    spawnSync("reg", ["query", WINDOWS_INTERNET_SETTINGS_KEY, "/v", value], {
+      encoding: "utf8",
+      timeout: 5000,
+      windowsHide: true
+    });
+  const enabledOutput = query("ProxyEnable");
+  const enabled = Boolean(enabledOutput.stdout?.match(/ProxyEnable\s+REG_DWORD\s+0x1\b/i));
+  const proxyServerOutput = enabled ? query("ProxyServer") : null;
+  cachedWindowsProxy = enabled
+    ? parseWindowsProxyServer(
+        proxyServerOutput?.stdout?.match(/ProxyServer\s+REG_SZ\s+(.+)/i)?.[1] ?? ""
+      ) ?? null
+    : null;
+
+  return cachedWindowsProxy ?? undefined;
+}
+
+function resolveProxyUrl(): string | undefined {
+  for (const key of PROXY_ENV_KEYS) {
+    const value = process.env[key]?.trim();
+    if (value) {
+      return normalizeProxyUrl(value);
+    }
+  }
+
+  return readWindowsSystemProxy();
+}
+
+function describeNetworkError(error: unknown): string {
+  const messages: string[] = [];
+  let current: unknown = error;
+
+  while (current && messages.length < 4) {
+    const message = getErrorMessage(current);
+    if (message && messages[messages.length - 1] !== message) {
+      messages.push(message);
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+
+  return messages.join(" | cause: ");
+}
+
+let proxyConfigured = false;
+
+function ensureProxyDispatcher(logger: (line: string) => void) {
+  if (proxyConfigured) {
+    return;
+  }
+
+  proxyConfigured = true;
+  const proxyUrl = resolveProxyUrl();
+  if (!proxyUrl) {
+    return;
+  }
+
+  if (proxyBypassed(API_HOSTNAME, process.env.NO_PROXY ?? process.env.no_proxy)) {
+    logger("[publish] cloudflare: proxy detected, but NO_PROXY bypasses the Cloudflare API; going direct.");
+    return;
+  }
+
+  setGlobalDispatcher(new ProxyAgent(proxyUrl));
+  logger(`[publish] cloudflare: routing API traffic through proxy ${proxyUrl}.`);
+}
+
+async function cfFetch<T>(
+  url: string,
+  init: RequestInit,
+  phase: string,
+  options: { requireResult?: boolean } = {}
+): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
+  const maxAttempts = method === "GET" ? 3 : 1;
+  let response: Response | undefined;
+  let networkError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      response = await fetch(url, init);
+      networkError = null;
+      break;
+    } catch (error) {
+      networkError = error;
+      if (attempt === maxAttempts) {
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
+
+  if (networkError !== null || !response) {
+    const detail = networkError !== null ? describeNetworkError(networkError) : "no response";
     throw new PublishTargetError(
       TARGET_ID,
       phase,
-      `Network error talking to Cloudflare: ${getErrorMessage(error)}`,
-      { cause: error }
+      `Network error talking to Cloudflare: ${detail}`,
+      networkError !== null ? { cause: networkError } : undefined
     );
   }
 
@@ -125,7 +292,7 @@ async function cfFetch<T>(url: string, init: RequestInit, phase: string): Promis
     });
   }
 
-  if (!("result" in body)) {
+  if (options.requireResult !== false && !("result" in body)) {
     throw new PublishTargetError(
       TARGET_ID,
       phase,
@@ -240,7 +407,8 @@ async function upsertHashes(jwt: string, hashes: string[]) {
       },
       body: JSON.stringify({ hashes })
     },
-    "upsert-hashes"
+    "upsert-hashes",
+    { requireResult: false }
   );
 }
 
@@ -332,9 +500,9 @@ async function uploadMissing(
 
   try {
     await upsertHashes(jwt, files.map((file) => file.hash));
-  } catch {
+  } catch (error) {
     logger(
-      "[publish] cloudflare: warning - asset upload succeeded, but upsert-hashes failed."
+      `[publish] cloudflare: warning - asset upload succeeded, but upsert-hashes failed: ${getErrorMessage(error)}`
     );
   }
 
@@ -392,6 +560,7 @@ export const cloudflareTarget: PublishTarget<CloudflareTargetConfig> = {
   },
   async publish(cfg, ctx: PublishContext): Promise<PublishResult> {
     const startedAt = Date.now();
+    ensureProxyDispatcher(ctx.logger);
     ctx.logger(`[publish] cloudflare -> ${cfg.projectName} (branch: ${cfg.branch}).`);
     ctx.logger("[publish] cloudflare: scanning dist + hashing files...");
 

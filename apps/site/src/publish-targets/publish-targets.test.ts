@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { loadPublishConfig, normalizePublishConfig } from "../publish-config.js";
-import { cloudflareTarget } from "./cloudflare.js";
+import { cloudflareTarget, parseWindowsProxyServer, proxyBypassed } from "./cloudflare.js";
 import { githubTarget } from "./github.js";
 import {
   _resetRegistryForTests,
@@ -22,6 +22,28 @@ test("registry exposes the built-in targets", () => {
   assert.ok(listTargets().includes("github"));
   assert.ok(listTargets().includes("cloudflare"));
   assert.equal(getTarget("github").id, "github");
+});
+
+test("parseWindowsProxyServer reads bare and per-protocol proxy values", () => {
+  assert.equal(parseWindowsProxyServer("127.0.0.1:7890"), "http://127.0.0.1:7890");
+  assert.equal(
+    parseWindowsProxyServer("http=127.0.0.1:7890;https=127.0.0.1:7891"),
+    "http://127.0.0.1:7891"
+  );
+  assert.equal(parseWindowsProxyServer("http=127.0.0.1:7890"), undefined);
+  assert.equal(parseWindowsProxyServer("socks=127.0.0.1:7890"), undefined);
+  assert.equal(parseWindowsProxyServer("http://proxy.internal:8080"), "http://proxy.internal:8080");
+  assert.equal(parseWindowsProxyServer("  "), undefined);
+});
+
+test("proxyBypassed matches NO_PROXY entries against the API hostname", () => {
+  assert.equal(proxyBypassed("api.cloudflare.com", "*"), true);
+  assert.equal(proxyBypassed("api.cloudflare.com", "cloudflare.com"), true);
+  assert.equal(proxyBypassed("api.cloudflare.com", ".cloudflare.com"), true);
+  assert.equal(proxyBypassed("api.cloudflare.com", "api.cloudflare.com"), true);
+  assert.equal(proxyBypassed("api.cloudflare.com", "example.com"), false);
+  assert.equal(proxyBypassed("api.cloudflare.com", undefined), false);
+  assert.equal(proxyBypassed("api.cloudflare.com", ""), false);
 });
 
 test("getTarget throws for unknown ids", () => {
@@ -175,7 +197,7 @@ test("cloudflare target follows upload-token to deployment flow", async () => {
         return jsonResponse({ success: true, result: {} });
       }
       if (call.method === "POST" && call.url.endsWith("/pages/assets/upsert-hashes")) {
-        return jsonResponse({ success: true, result: {} });
+        return jsonResponse({ success: true });
       }
       if (call.method === "POST" && call.url.endsWith("/deployments")) {
         return jsonResponse({ success: true, result: { id: "dep_1", url: "https://blog.pages.dev" } });
@@ -259,7 +281,7 @@ test("cloudflare target uses wrangler-compatible BLAKE3 asset hashes", async () 
         });
       }
       if (call.method === "POST" && call.url.endsWith("/pages/assets/upsert-hashes")) {
-        return jsonResponse({ success: true, result: {} });
+        return jsonResponse({ success: true });
       }
       throw new Error(`Unexpected call: ${call.method} ${call.url}`);
     });
