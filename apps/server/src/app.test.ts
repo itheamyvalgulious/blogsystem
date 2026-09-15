@@ -538,6 +538,92 @@ test("creating an article with a duplicate title returns a conflict payload", as
   assert.equal(response.body.conflicts[0].path, "notes/draft.md");
 });
 
+test("creating articles with the same title in different directories succeeds", async () => {
+  const { agent, contentRoot } = await setupTempApp();
+
+  // Create "notes" directory already exists from setup.
+  await fs.mkdir(path.join(contentRoot, "posts"), { recursive: true });
+
+  const first = await agent
+    .post("/api/fs/create")
+    .send({
+      parentPath: "notes",
+      entryType: "file",
+      name: "dup.md",
+      metadata: { title: "Same" }
+    })
+    .expect(200);
+
+  assert.equal(first.body.path, "notes/dup.md");
+
+  const second = await agent
+    .post("/api/fs/create")
+    .send({
+      parentPath: "posts",
+      entryType: "file",
+      name: "dup.md",
+      metadata: { title: "Same" }
+    })
+    .expect(200);
+
+  assert.equal(second.body.path, "posts/dup.md");
+});
+
+test("renaming an article to a duplicate title in the same directory returns a conflict", async () => {
+  const { agent } = await setupTempApp();
+
+  await agent
+    .post("/api/fs/create")
+    .send({
+      parentPath: "notes",
+      entryType: "file",
+      name: "alpha.md",
+      metadata: { title: "Alpha" }
+    })
+    .expect(200);
+
+  await agent
+    .post("/api/fs/create")
+    .send({
+      parentPath: "notes",
+      entryType: "file",
+      name: "beta.md",
+      metadata: { title: "Beta" }
+    })
+    .expect(200);
+
+  // Rename beta.md to title "Alpha" → conflict with alpha.md
+  const response = await agent
+    .post("/api/fs/rename")
+    .send({
+      path: "notes/beta.md",
+      nextName: "beta.md",
+      title: "Alpha"
+    })
+    .expect(409);
+
+  assert.equal(response.body.code, "duplicate_article_title");
+  assert.equal(response.body.conflicts[0].path, "notes/alpha.md");
+});
+
+test("allowDuplicateTitle overrides same-directory duplicate title on create", async () => {
+  const { agent } = await setupTempApp();
+
+  // The initial setup already has "notes/draft.md" with title "Draft Note".
+  const response = await agent
+    .post("/api/fs/create")
+    .send({
+      parentPath: "notes",
+      entryType: "file",
+      name: "another-draft.md",
+      metadata: { title: "Draft Note" },
+      allowDuplicateTitle: true
+    })
+    .expect(200);
+
+  assert.equal(response.body.path, "notes/another-draft.md");
+});
+
 test("config endpoints expose markdown block rules and admin home defaults", async () => {
   const { agent } = await setupTempApp();
 

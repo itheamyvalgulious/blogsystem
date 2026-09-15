@@ -320,11 +320,16 @@ export class InlineMathRowWidget extends WidgetType {
    * so "before the widget" landings arrive here with side < 0). The default
    * would return the full-width band rect, which draws the caret on the
    * preview row's far right edge; instead:
-   * - side < 0 (End-like landings at the anchor) → the caret renders at the
-   *   END of the PRECEDING content (the formula row's last char) — exactly
-   *   how CM draws a caret at a wrapped-line boundary;
-   * - side >= 0 → a zero-width rect at the band row's left edge (the honest
-   *   "between rows" spot).
+   * - BOTH side < 0 (End-like landings at the anchor) AND side >= 0 (e.g. the
+   *   caret at end-of-line coinciding with the band anchor) → the caret
+   *   renders at the END of the PRECEDING content (the formula row's last
+   *   char) — exactly how CM draws a caret at a wrapped-line boundary. The
+   *   old side>=0 band-left-edge behavior drew the caret on the band row
+   *   while typing at end-of-line; the band row itself is never a caret
+   *   destination.
+   * - When there is no preceding sibling (headless / detached DOM) the
+   *   band row's left edge is returned as a zero-width rect — this is the
+   *   lesser evil vs. the default full-width rect.
    * Vertical cursor motion and clicks that approach the anchor from below
    * resolve with assoc +1 into the following text tile and never reach this
    * hook, so they keep landing on the next row's first character (the band
@@ -336,26 +341,29 @@ export class InlineMathRowWidget extends WidgetType {
    * The hook's `pos` argument is the offset INTO the widget (always 0 for
    * this zero-length widget), hence no doc position is needed here.
    */
-  override coordsAt(dom: HTMLElement, _pos: number, side: number): Rect | null {
-    if (side < 0) {
-      let node: Node | null = dom.previousSibling;
-      // CM inserts a zero-width buffer img between text and uneditable
-      // widgets; the content end lives one node further back. (Duck-typed:
-      // headless runs have no Element global and never reach the Range.)
-      if (node && (node as Element).classList?.contains("cm-widgetBuffer")) {
-        node = node.previousSibling;
-      }
-      if (node) {
-        const range = document.createRange();
-        range.selectNodeContents(node);
-        range.collapse(false);
-        const rects = range.getClientRects();
-        const last = rects.length > 0 ? rects[rects.length - 1] : null;
-        if (last && last.bottom > last.top) {
-          return { left: last.right, right: last.right, top: last.top, bottom: last.bottom };
-        }
+  override coordsAt(dom: HTMLElement, _pos: number, _side: number): Rect | null {
+    // A caret landing on the widget tile from either side belongs to the
+    // source row (the band row itself is never a caret destination).
+    let node: Node | null = dom.previousSibling;
+    // CM inserts a zero-width buffer img between text and uneditable
+    // widgets; the content end lives one node further back. (Duck-typed:
+    // headless runs have no Element global and never reach the Range.)
+    if (node && (node as Element).classList?.contains("cm-widgetBuffer")) {
+      node = node.previousSibling;
+    }
+    if (node) {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      range.collapse(false);
+      const rects = range.getClientRects();
+      const last = rects.length > 0 ? rects[rects.length - 1] : null;
+      if (last && last.bottom > last.top) {
+        return { left: last.right, right: last.right, top: last.top, bottom: last.bottom };
       }
     }
+    // Fallback: no preceding sibling (headless / detached DOM). Return the
+    // band row's left edge as a zero-width rect instead of the default
+    // full-width rect — see the class comment for why this is the lesser evil.
     const rect = dom.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) {
       return null;

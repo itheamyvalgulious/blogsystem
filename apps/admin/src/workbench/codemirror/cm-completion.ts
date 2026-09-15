@@ -10,12 +10,10 @@ import type { EditorState, Extension } from "@codemirror/state";
 
 import type { ArticleSummary } from "@blog-system/content-core";
 
-import { scanDocumentMathPairs } from "../../markdown-math-scanner";
 import {
   resolveActiveSnippetMatches,
   type SnippetCompletionMatch
 } from "../../snippet-completion";
-import { getSnippetLanguageFromMathPairs } from "../../snippet-context";
 import { getSnippetsForLanguage } from "../../snippet-scope";
 import {
   isArticleDocument,
@@ -25,9 +23,9 @@ import {
   getProjectTaskNoteQuery,
   getProjectTaskNoteSuggestions
 } from "../project-task-utils";
-import { positionAt } from "./cm-handle";
 import { getWorkbenchCompletionContext } from "./cm-context";
 import { insertCmSnippet } from "./cm-snippets";
+import { cmMathContextExtension, getCmMathLanguageAt } from "./cm-math-context";
 
 /**
  * Workbench completion source for the CodeMirror "live" engine:
@@ -41,9 +39,22 @@ import { insertCmSnippet } from "./cm-snippets";
  * Both result sets are pre-filtered and pre-sorted, so CM filtering is
  * disabled (`filter: false`) and the returned order is preserved.
  *
- * The snippet language (markdown vs latex) is derived by rescanning the
- * document's math pairs at query time, keeping the source self-contained and
- * always in sync with the current buffer.
+ * The snippet language (markdown vs latex) is read from the incremental
+ * `cmMathContextField` (see cm-math-context.ts) at query time, with a
+ * full-scan fallback for states that do not install the field.
+ *
+ *
+ * IME / composition hardening:
+ * - `workbenchCompletionSource` returns null mid-composition (the document
+ *   text is transient pinyin/pre-commit; results would be stale the moment
+ *   the candidate commits, and the panel churns mid-composition). The
+ *   commit's own input transactions re-trigger the query.
+ * - `option.apply` refuses to dispatch any document change while a
+ *   composition is active (corrupts CM's composition tracking). It also
+ *   validates both the head-anchored and the legacy fallback range against
+ *   the replacement text before applying, so a stale panel whose text no
+ *   longer matches the document cleanly aborts instead of eating adjacent
+ *   characters.
  *
  * No monaco imports: this module must stay loadable in Node test runs.
  */
@@ -91,14 +102,38 @@ export function buildSnippetCompletionOptions(matches: SnippetCompletionMatch[])
     // Each suggestion has its own replacement range (the matched prefix,
     // which differs per prefix within one result); a CM result shares a single
     // range, so each option re-applies its own span here. Use the actual caret
-    // position as the source of truth. The completion range can still be the
-    // empty trigger position for symbol prefixes such as `$`.
+    // position as the source of truth. When the head-anchored text does not
+    // match the replacement (e.g. the caret moved since query or an IME commit
+    // replaced the typed prefix), fall back to the mapped result range — but
+    // only if its text STILL matches the replacement, otherwise the panel is
+    // stale and applying would eat unrelated characters.
     option.apply = (view, completion, _from, to) => {
+      // IME safety: never dispatch a document change while a composition is
+      // active — it corrupts CodeMirror's composition tracking (the reported
+      // "$ disappears" corruption when an IME commit races the panel).
+      if (view.compositionStarted) {
+        closeCompletion(view);
+        return;
+      }
       const actualTo = view.state.selection.main.head;
       const actualFrom = actualTo - match.replacementText.length;
-      const rangeMatchesTypedText =
+      const headMatches =
         actualFrom >= 0 && view.state.sliceDoc(actualFrom, actualTo) === match.replacementText;
-      const replacementTo = rangeMatchesTypedText ? actualTo : to;
+      // The mapped result range may point at text the user no longer typed
+      // (e.g. an IME commit replaced the prefix between query and accept).
+      // Only fall back to it when its text STILL matches the replacement —
+      // otherwise applying would eat unrelated characters before the caret.
+      const fallbackFrom = to - match.replacementText.length;
+      const fallbackMatches =
+        fallbackFrom >= 0 && fallbackFrom !== actualFrom &&
+        view.state.sliceDoc(fallbackFrom, to) === match.replacementText;
+      if (!headMatches && !fallbackMatches) {
+        // Stale panel: the document changed under it. Applying would replace
+        // unrelated text — abort cleanly instead.
+        closeCompletion(view);
+        return;
+      }
+      const replacementTo = headMatches ? actualTo : to;
       const replacementFrom = replacementTo - match.replacementText.length;
       insertCmSnippet(view, body, replacementFrom, replacementTo);
       // A custom apply function bypasses CodeMirror's normal completion
@@ -125,10 +160,18 @@ export function buildNoteReferenceOptions(query: string, articles: ArticleSummar
   }));
 }
 
-function workbenchCompletionSource(context: CompletionContext): CompletionResult | null {
+export function workbenchCompletionSource(context: CompletionContext): CompletionResult | null {
   const { activeDocument, articleSummaries, latexSnippets, markdownSnippets } =
     getWorkbenchCompletionContext();
   if (!activeDocument) {
+    return null;
+  }
+
+  // Never query while an IME composition is active: the document text is
+  // transient (pinyin/pre-commit), results would be stale the moment the
+  // candidate commits, and the panel churns mid-composition. The commit's
+  // own input transactions re-trigger the query (activateOnTyping).
+  if (context.view?.compositionStarted) {
     return null;
   }
 
@@ -155,13 +198,7 @@ function workbenchCompletionSource(context: CompletionContext): CompletionResult
     return null;
   }
 
-  const position = positionAt(context.state.doc, pos);
-  const mathPairs = scanDocumentMathPairs(context.state.doc.toString());
-  const snippetLanguage = getSnippetLanguageFromMathPairs(
-    mathPairs,
-    position.lineNumber,
-    position.column
-  );
+  const snippetLanguage = getCmMathLanguageAt(context.state, pos);
   const snippetState = resolveActiveSnippetMatches(
     linePrefix,
     snippetLanguage,
@@ -183,11 +220,27 @@ function workbenchCompletionSource(context: CompletionContext): CompletionResult
  * because completionKeymap is already part of the shared keymap stack
  * (cm-keymap.ts); `activateOnTyping` re-queries on every typed character,
  * covering both word prefixes and symbol trigger characters (@, \, ...).
+ *
+ * Zero `activateOnTypingDelay`: the suggestion panel must appear in the same
+ * frame as the triggering keystroke, so a fast Enter accepts the completion
+ * instead of inserting a newline.
  */
 export function createCmCompletionExtension(): Extension {
-  return autocompletion({
-    activateOnTyping: true,
-    defaultKeymap: false,
-    override: [workbenchCompletionSource]
-  });
+  return [
+    // Incremental per-line math context: keeps the snippet-language query at
+    // the caret O(line) instead of a full-document rescan per keystroke.
+    cmMathContextExtension,
+    autocompletion({
+      activateOnTyping: true,
+      activateOnTypingDelay: 0,
+      // The panel's timestamp is refreshed on every rebuild (per-keystroke
+      // re-queries), so the stock 75ms anti-misaccept window intermittently
+      // turned a displayed panel's Enter into a newline (acceptCompletion
+      // refused -> defaultKeymap newline). Our source is pre-filtered and
+      // prefix-anchored; there is no misaccept risk worth the window.
+      interactionDelay: 0,
+      defaultKeymap: false,
+      override: [workbenchCompletionSource]
+    })
+  ];
 }

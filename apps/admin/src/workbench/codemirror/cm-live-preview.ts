@@ -1395,9 +1395,12 @@ export const setInlineMathWrapEnds = StateEffect.define<ReadonlyMap<number, numb
 /**
  * Formula start offset → measured wrap end of its visual row (see
  * findVisualRowWrapEnd), covering the viewport plus a buffer. Drives band
- * anchors; mapped through document changes so bands stay near-correct while
- * typing, and rewritten by the measure plugin after its debounce (same
- * write/discipline as the tops field). Exported for headless tests.
+ * anchors; on docChanged entries whose formula line or wrap-end line is
+ * touched are DROPPED (the band disappears for up to one 120ms measure
+ * window — 宁缺毋错) instead of mapped blindly; untouched entries are mapped
+ * through the change as before. Rewritten by the measure plugin after its
+ * debounce (same write/discipline as the tops field). Exported for headless
+ * tests.
  */
 export const livePreviewInlineMathWrapEndsField = StateField.define<ReadonlyMap<number, number>>({
   create: () => new Map(),
@@ -1408,8 +1411,20 @@ export const livePreviewInlineMathWrapEndsField = StateField.define<ReadonlyMap<
       }
     }
     if (tr.docChanged && value.size > 0) {
+      const changed: Array<{ from: number; to: number }> = [];
+      tr.changes.iterChangedRanges((fromA, toA) => changed.push({ from: fromA, to: toA }));
       const mapped = new Map<number, number>();
       for (const [from, wrapEnd] of value) {
+        const line = tr.startState.doc.lineAt(from);
+        const endLine = tr.startState.doc.lineAt(wrapEnd);
+        const touched = changed.some(
+          (range) =>
+            (range.from <= line.to && range.to >= line.from) ||
+            (range.from <= endLine.to && range.to >= endLine.from)
+        );
+        if (touched) {
+          continue; // stale anchor: drop, re-measure
+        }
         mapped.set(tr.changes.mapPos(from, 1), tr.changes.mapPos(wrapEnd, 1));
       }
       return mapped;

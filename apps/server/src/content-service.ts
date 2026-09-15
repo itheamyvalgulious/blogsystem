@@ -51,7 +51,7 @@ export class DuplicateArticleTitleError extends Error {
   readonly conflicts: DuplicateArticleTitleConflict[];
 
   constructor(title: string, conflicts: DuplicateArticleTitleConflict[]) {
-    super(`Article title "${title}" already exists.`);
+    super(`Article title "${title}" already exists in this folder.`);
     this.conflicts = conflicts;
   }
 }
@@ -449,7 +449,7 @@ function normalizeComparableTitle(title: string) {
 async function findDuplicateArticleTitleConflicts(
   contentRoot: string,
   title: string,
-  options?: { excludePath?: string }
+  options?: { directory?: string; excludePath?: string }
 ) {
   const comparableTitle = normalizeComparableTitle(title);
 
@@ -457,6 +457,9 @@ async function findDuplicateArticleTitleConflicts(
     return [];
   }
 
+  const normalizedDirectory = options?.directory
+    ? normalizeRelativeEntryPath(options.directory)
+    : "";
   const normalizedExcludePath = options?.excludePath ? normalizeRelativeEntryPath(options.excludePath) : null;
   const articles = await scanArticles(contentRoot);
 
@@ -464,6 +467,7 @@ async function findDuplicateArticleTitleConflicts(
     .filter(
       (article) =>
         normalizeComparableTitle(article.title) === comparableTitle &&
+        article.directory === normalizedDirectory &&
         article.path !== normalizedExcludePath
     )
     .map((article) => ({
@@ -477,6 +481,7 @@ async function assertNoDuplicateArticleTitle(
   title: string,
   options?: {
     allowDuplicateTitle?: boolean;
+    directory?: string;
     excludePath?: string;
   }
 ) {
@@ -485,6 +490,7 @@ async function assertNoDuplicateArticleTitle(
   }
 
   const conflicts = await findDuplicateArticleTitleConflicts(contentRoot, title, {
+    directory: options?.directory,
     excludePath: options?.excludePath
   });
 
@@ -544,7 +550,8 @@ export async function createFileSystemEntry(
       contentRoot,
       resolveArticleTitleForCreate(name, metadata),
       {
-        allowDuplicateTitle: options?.allowDuplicateTitle
+        allowDuplicateTitle: options?.allowDuplicateTitle,
+        directory: normalizedParentPath
       }
     );
   }
@@ -590,6 +597,7 @@ export async function renameFileSystemEntry(
 
     await assertNoDuplicateArticleTitle(contentRoot, nextTitle, {
       allowDuplicateTitle: options?.allowDuplicateTitle,
+      directory: normalizedParentPath,
       excludePath: normalizedSourcePath
     });
   }

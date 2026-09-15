@@ -39,6 +39,7 @@ import {
 import { cmMathHighlight } from "./cm-math-highlight";
 import { cmLivePreview, cmMathMarkdown } from "./cm-live-preview";
 import { cmOrderedListExtension } from "./cm-ordered-list";
+import { cmScrollPastEnd } from "./cm-scroll-past-end";
 import { cmSnippetExtension } from "./cm-snippets";
 import {
   createCmBaseTheme,
@@ -164,6 +165,11 @@ const baseExtensions: Extension[] = [
   cmSnippetExtension,
   cmMathHighlight,
   cmLivePreview,
+  // One-viewport bottom blank (see cm-scroll-past-end.ts): keeps scrollTop
+  // valid while below-source previews transiently collapse during typing, so
+  // the viewport never clamps/jumps at the end of the document. Content-sized
+  // editors (embedded project editors) are detected and skipped there.
+  cmScrollPastEnd,
   createCmAiInlineCompletionExtension(),
   cmKeymap,
   bridgeUpdateListener,

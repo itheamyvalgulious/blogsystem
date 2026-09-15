@@ -12,6 +12,7 @@ import type { MarkdownParser } from "@lezer/markdown";
 import { setWorkbenchLivePreviewContext } from "./cm-context";
 import {
   computeLivePreviewFloatFit,
+  computeLivePreviewFloatVerticalFit,
   FLOAT_MODE_MIN_WIDTH,
   reconcileFloatWidth,
   resolveLivePreviewFloatLayout,
@@ -1528,4 +1529,20 @@ test("reconcileFloatWidth: grow / keep / below, idempotent and never shrinks", (
   }
   // Zero-content edge (panel without measurable content) keeps its width.
   assert.deepEqual(reconcileFloatWidth(155, 0, 600), { kind: "keep", width: 155 });
+});
+
+test("computeLivePreviewFloatVerticalFit: floats when panel fits within source height", () => {
+  assert.equal(computeLivePreviewFloatVerticalFit(100, 100, 2), "float");
+  assert.equal(computeLivePreviewFloatVerticalFit(100, 101, 2), "float");
+  // Exactly at the tolerance boundary (panel 102, source 100 + tolerance 2).
+  assert.equal(computeLivePreviewFloatVerticalFit(102, 100, 2), "float");
+  // 1px over tolerance → falls back below.
+  assert.equal(computeLivePreviewFloatVerticalFit(103, 100, 2), "below");
+  // Default tolerance (2) applied when omitted.
+  assert.equal(computeLivePreviewFloatVerticalFit(101, 99), "float");
+  assert.equal(computeLivePreviewFloatVerticalFit(102, 99), "below");
+  // Source taller than panel always fits.
+  assert.equal(computeLivePreviewFloatVerticalFit(50, 200), "float");
+  // Zero-height panel (not yet measured) never exceeds source with tolerance.
+  assert.equal(computeLivePreviewFloatVerticalFit(0, 0), "float");
 });
