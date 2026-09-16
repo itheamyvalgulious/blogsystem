@@ -1134,7 +1134,7 @@ export function App() {
         setBusyMessage(null);
       }
     },
-    [draftValuesRef, enabledThemeGroups, activeTheme?.appearance, renderStyleAssetVersion, setBusyMessage, setPageError]
+    [draftValuesRef, enabledThemeGroups, activeTheme, renderStyleAssetVersion, setBusyMessage, setPageError]
   );
 
   const { handleDocumentValueChange, handleEditorModelContentChange } = useEditorContentChange({
