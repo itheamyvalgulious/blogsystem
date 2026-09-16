@@ -16,7 +16,9 @@ import {
   FLOAT_MODE_MIN_WIDTH,
   reconcileFloatWidth,
   resolveLivePreviewFloatLayout,
-  resolveLivePreviewLayoutMode
+  resolveLivePreviewLayoutMode,
+  isLivePreviewBelowFallbackStable,
+  shouldRelayoutForLivePreviewMutation
 } from "./cm-live-preview-float";
 import {
   computeInlineMathFormulaLayout,
@@ -1545,4 +1547,70 @@ test("computeLivePreviewFloatVerticalFit: floats when panel fits within source h
   assert.equal(computeLivePreviewFloatVerticalFit(50, 200), "float");
   // Zero-height panel (not yet measured) never exceeds source with tolerance.
   assert.equal(computeLivePreviewFloatVerticalFit(0, 0), "float");
+});
+
+test("float mutation filtering ignores the plugin's root/panel bookkeeping", () => {
+  assert.equal(
+    shouldRelayoutForLivePreviewMutation({
+      targetIsEditorRoot: true,
+      targetIsFloatPanelRoot: false,
+      targetIsFloatPanelContent: false,
+      targetIsEditorContent: false
+    }),
+    false
+  );
+  assert.equal(
+    shouldRelayoutForLivePreviewMutation({
+      targetIsEditorRoot: false,
+      targetIsFloatPanelRoot: true,
+      targetIsFloatPanelContent: false,
+      targetIsEditorContent: false
+    }),
+    false
+  );
+  assert.equal(
+    shouldRelayoutForLivePreviewMutation({
+      targetIsEditorRoot: false,
+      targetIsFloatPanelRoot: false,
+      targetIsFloatPanelContent: true,
+      targetIsEditorContent: false
+    }),
+    true
+  );
+  assert.equal(
+    shouldRelayoutForLivePreviewMutation({
+      targetIsEditorRoot: false,
+      targetIsFloatPanelRoot: false,
+      targetIsFloatPanelContent: false,
+      targetIsEditorContent: true
+    }),
+    true
+  );
+});
+
+test("below fallback is stable only until measured geometry/content changes", () => {
+  const fallback = {
+    contentRight: 1200,
+    lineEndXs: [180],
+    sourceHeight: 24,
+    naturalWidth: 420,
+    panelHeight: 96
+  };
+  assert.equal(isLivePreviewBelowFallbackStable(fallback, { ...fallback }), true);
+  assert.equal(
+    isLivePreviewBelowFallbackStable(fallback, { ...fallback, contentRight: 1400 }),
+    false
+  );
+  assert.equal(
+    isLivePreviewBelowFallbackStable(fallback, { ...fallback, sourceHeight: 120 }),
+    false
+  );
+  assert.equal(
+    isLivePreviewBelowFallbackStable(fallback, { ...fallback, naturalWidth: 421 }),
+    false
+  );
+  assert.equal(
+    isLivePreviewBelowFallbackStable(fallback, { ...fallback, lineEndXs: [181] }),
+    false
+  );
 });

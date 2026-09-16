@@ -37,8 +37,12 @@ export const markdownBlockConfigSchema = {
   }
 } as const;
 
+export const builtInMarkdownBlockRules: MarkdownBlockRule[] = [
+  { start: "[nopdf]", end: "[/nopdf]", tag: "div", class: ["no-pdf"] }
+];
+
 export const defaultMarkdownBlockConfig: MarkdownBlockConfig = {
-  rules: []
+  rules: [...builtInMarkdownBlockRules]
 };
 
 function normalizeClassNames(value: unknown) {
@@ -104,14 +108,26 @@ function renderOpenTag(rule: MarkdownBlockRule) {
   return `<${rule.tag}${classAttribute}>`;
 }
 
+function mergeBuiltInRules(userRules: MarkdownBlockRule[]): MarkdownBlockRule[] {
+  const builtInStartMarkers = new Set(
+    builtInMarkdownBlockRules.map((r) => r.start.trim().toLowerCase())
+  );
+  return [
+    ...builtInMarkdownBlockRules,
+    ...userRules.filter((r) => !builtInStartMarkers.has(r.start.trim().toLowerCase()))
+  ];
+}
+
 export function applyMarkdownBlockRules(
   markdown: string,
   configOrRules?: MarkdownBlockConfig | MarkdownBlockRule[] | null
 ) {
   const normalizedMarkdown = markdown.replace(/\r\n/g, "\n");
-  const rules = Array.isArray(configOrRules)
+  const userRules: MarkdownBlockRule[] = Array.isArray(configOrRules)
     ? normalizeMarkdownBlockConfig({ rules: configOrRules }).rules
     : normalizeMarkdownBlockConfig(configOrRules).rules;
+
+  const rules = mergeBuiltInRules(userRules);
 
   if (rules.length === 0) {
     return normalizedMarkdown;

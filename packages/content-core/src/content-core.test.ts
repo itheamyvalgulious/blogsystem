@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   applyMarkdownBlockRules,
   buildThemeColorModeVariantCss,
+  builtInMarkdownBlockRules,
   createDefaultSlug,
+  defaultMarkdownBlockConfig,
   extractHeadings,
   extractMarkdownBlocks,
   inferThemeColorModeFromCss,
@@ -22,6 +24,7 @@ import {
   renderMarkdownWithKatex,
   rewriteRelativeAssetUrls,
   toArticleSummary,
+  type MarkdownBlockRule,
   type MarkdownFenceRendererDefinition,
   type ArticleRecord,
   validateEditorConfigShape
@@ -504,6 +507,112 @@ test("applyMarkdownBlockRules throws when markers close out of order", () => {
       ),
     /must close/
   );
+});
+
+test("builtInMarkdownBlockRules exports the nopdf rule", () => {
+  assert.equal(builtInMarkdownBlockRules.length, 1);
+  const rule: MarkdownBlockRule = builtInMarkdownBlockRules[0];
+  assert.equal(rule.start, "[nopdf]");
+  assert.equal(rule.end, "[/nopdf]");
+  assert.equal(rule.tag, "div");
+  assert.deepEqual(rule.class, ["no-pdf"]);
+});
+
+test("defaultMarkdownBlockConfig includes built-in rules", () => {
+  assert.equal(defaultMarkdownBlockConfig.rules.length, 1);
+  assert.equal(defaultMarkdownBlockConfig.rules[0].start, "[nopdf]");
+  assert.equal(defaultMarkdownBlockConfig.rules[0].end, "[/nopdf]");
+});
+
+test("applyMarkdownBlockRules renders nopdf block with no config", () => {
+  const output = applyMarkdownBlockRules(
+    ["[nopdf]", "hidden content", "[/nopdf]"].join("\n")
+  );
+
+  assert.match(output, /<div class="no-pdf">/);
+  assert.match(output, /hidden content/);
+  assert.match(output, /<\/div>/);
+});
+
+test("applyMarkdownBlockRules renders nopdf block with null config", () => {
+  const output = applyMarkdownBlockRules(
+    ["[nopdf]", "more hidden", "[/nopdf]"].join("\n"),
+    null
+  );
+
+  assert.match(output, /<div class="no-pdf">/);
+  assert.match(output, /more hidden/);
+  assert.match(output, /<\/div>/);
+});
+
+test("applyMarkdownBlockRules merges built-in nopdf with user rules", () => {
+  const output = applyMarkdownBlockRules(
+    ["[nopdf]", "pdf skip", "[/nopdf]", "", "::cbox", "visible", "::/cbox"].join("\n"),
+    {
+      rules: [
+        { start: "::cbox", end: "::/cbox", tag: "div", class: ["cbox"] }
+      ]
+    }
+  );
+
+  assert.match(output, /<div class="no-pdf">/);
+  assert.match(output, /pdf skip/);
+  assert.match(output, /<div class="cbox">/);
+  assert.match(output, /visible/);
+});
+
+test("applyMarkdownBlockRules user rule cannot shadow built-in nopdf start marker", () => {
+  const output = applyMarkdownBlockRules(
+    ["[nopdf]", "shadow attempt", "[/nopdf]"].join("\n"),
+    {
+      rules: [
+        { start: "[nopdf]", end: "[/nopdf]", tag: "span", class: ["shadow"] }
+      ]
+    }
+  );
+
+  // Built-in rule takes priority (first in merged list), so output uses div.no-pdf
+  assert.match(output, /<div class="no-pdf">/);
+  assert.doesNotMatch(output, /<span/);
+  assert.match(output, /shadow attempt/);
+});
+
+test("renderMarkdownWithKatex supports nopdf block with default config (no custom config)", async () => {
+  const rendered = await renderMarkdownWithKatex(
+    ["[nopdf]", "", "print-hidden", "", "[/nopdf]"].join("\n")
+  );
+
+  assert.match(rendered.html, /class="no-pdf"/);
+  assert.match(rendered.html, /print-hidden/);
+});
+
+test("renderMarkdownWithKatex supports nopdf block alongside user custom rules", async () => {
+  const rendered = await renderMarkdownWithKatex(
+    ["[nopdf]", "", "pdf-only", "", "[/nopdf]", "", "[conc]", "", "always", "", "[/conc]"].join("\n"),
+    {
+      rules: [
+        { start: "[conc]", end: "[/conc]", tag: "div", class: ["cbox"] }
+      ]
+    }
+  );
+
+  assert.match(rendered.html, /class="no-pdf"/);
+  assert.match(rendered.html, /pdf-only/);
+  assert.match(rendered.html, /class="cbox"/);
+  assert.match(rendered.html, /always/);
+});
+
+test("applyMarkdownBlockRules preserves existing custom block behavior with no nopdf markers", () => {
+  const output = applyMarkdownBlockRules(
+    ["::cbox", "unchanged", "::/cbox"].join("\n"),
+    {
+      rules: [
+        { start: "::cbox", end: "::/cbox", tag: "div", class: ["cbox"] }
+      ]
+    }
+  );
+
+  assert.equal(output, ["<div class=\"cbox\">", "unchanged", "</div>"].join("\n"));
 });
 
 test("normalizeAdminHomeConfig keeps widget order unique", () => {

@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+import type { PrintPdfRequest, PrintPdfResult } from "./pdf-export-types";
+
 const DESKTOP_SHORTCUT_CHANNEL = "blog-system:workbench-shortcut";
+const PRINT_TO_PDF_CHANNEL = "blog-system:print-to-pdf";
 
 function dispatchWorkbenchShortcut(payload: {
   altKey: boolean;
@@ -33,7 +36,12 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 
 contextBridge.exposeInMainWorld("blogSystemDesktop", {
-  isElectron: true
+  isElectron: true,
+
+  /** Open the native save dialog and export the current window as PDF. */
+  printCurrentWindowToPdf(request: PrintPdfRequest): Promise<PrintPdfResult> {
+    return ipcRenderer.invoke(PRINT_TO_PDF_CHANNEL, request);
+  },
 });
 
 // The main process sets ADMIN_USERNAME/ADMIN_PASSWORD to the credentials

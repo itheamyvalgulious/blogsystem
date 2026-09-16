@@ -1,12 +1,19 @@
-import { app, BrowserWindow, Menu, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, dialog } from "electron";
 import { appendFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { startAdminHostServer, type RunningAdminHost } from "./admin-host";
 import { loadDesktopRuntimeConfig } from "./runtime-config";
+import {
+  type PageSizeString,
+  type PrintPdfResult,
+  VALID_PAGE_SIZES,
+} from "./pdf-export-types";
 
 const DESKTOP_SHORTCUT_CHANNEL = "blog-system:workbench-shortcut";
+const PRINT_TO_PDF_CHANNEL = "blog-system:print-to-pdf";
 const DEV_START_URL = process.env.BLOG_SYSTEM_ELECTRON_START_URL?.trim();
 const IS_DEV = Boolean(DEV_START_URL);
 
@@ -75,6 +82,90 @@ function forwardWorkbenchShortcut(window: BrowserWindow, input: Parameters<NonNu
     metaKey: input.meta === true,
     shiftKey: input.shift === true
   });
+}
+
+function sanitizePdfFilename(input: string): string {
+  // Normalize both / and \\ separators so path.basename catches everything
+  const normalized = (input || "article").replace(/[/\\]/g, path.sep);
+  const name = path.basename(normalized);
+  // Ensure .pdf extension
+  return name.toLowerCase().endsWith(".pdf") ? name : `${name}.pdf`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+async function handlePrintToPdf(
+  event: Electron.IpcMainInvokeEvent,
+  request: unknown
+): Promise<PrintPdfResult> {
+  // --- Guard: null / non-object / missing renderer ---
+  if (!request || typeof request !== "object" || Array.isArray(request)) {
+    throw new Error("Invalid print-to-pdf request: expected a non-null object");
+  }
+
+  const body = request as Record<string, unknown>;
+  const window = BrowserWindow.fromWebContents(event.sender);
+
+  if (!window) {
+    throw new Error("No BrowserWindow found for the sender");
+  }
+
+  // --- Validate / clamp untrusted renderer values ---
+  const filename = sanitizePdfFilename(
+    typeof body.defaultFileName === "string" ? body.defaultFileName : ""
+  );
+  const pageSize: PageSizeString | "A4" = VALID_PAGE_SIZES.includes(body.pageSize as PageSizeString)
+    ? (body.pageSize as PageSizeString)
+    : "A4";
+  const landscape = body.landscape === true;
+  const printBackground = body.printBackground === true;
+  const scale = clamp(typeof body.scale === "number" ? body.scale : 1, 0.1, 2.0);
+  const generateTaggedPDF = body.documentOutline === true;
+
+  // --- Native save dialog ---
+  const { canceled, filePath } = await dialog.showSaveDialog(window, {
+    title: "Export Article as PDF",
+    defaultPath: filename,
+    filters: [{ name: "PDF Files", extensions: ["pdf"] }],
+  });
+
+  if (canceled || !filePath) {
+    return { canceled: true };
+  }
+
+  // --- Build Electron print options ---
+  const printOptions: Electron.PrintToPDFOptions = {
+    landscape,
+    printBackground,
+    scale,
+    pageSize,
+    preferCSSPageSize: true,
+    generateTaggedPDF,
+  };
+
+  // Custom margins — convert mm → px (96 DPI: 1 mm ≈ 3.779527559 px)
+  const marginsMm = body.marginsMm;
+  if (marginsMm && typeof marginsMm === "object") {
+    const mm = marginsMm as Record<string, unknown>;
+    const mmToPx = (v: unknown) => clamp(typeof v === "number" ? v * 3.779527559 : 0, 0, 1000);
+    printOptions.margins = {
+      marginType: "custom",
+      top: mmToPx(mm.top),
+      bottom: mmToPx(mm.bottom),
+      left: mmToPx(mm.left),
+      right: mmToPx(mm.right),
+    };
+  }
+
+  // --- Generate PDF ---
+  const pdfBuffer = await window.webContents.printToPDF(printOptions);
+
+  // --- Write to chosen path ---
+  await writeFile(filePath, pdfBuffer);
+
+  return { canceled: false, filePath };
 }
 
 async function startEmbeddedServer(serverPort: number) {
@@ -220,6 +311,7 @@ process.on("unhandledRejection", (error) => {
 
 app.whenReady()
   .then(async () => {
+    ipcMain.handle(PRINT_TO_PDF_CHANNEL, handlePrintToPdf);
     Menu.setApplicationMenu(null);
     await createMainWindow();
 

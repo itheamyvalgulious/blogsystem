@@ -1396,10 +1396,10 @@ export const setInlineMathWrapEnds = StateEffect.define<ReadonlyMap<number, numb
  * Formula start offset → measured wrap end of its visual row (see
  * findVisualRowWrapEnd), covering the viewport plus a buffer. Drives band
  * anchors; on docChanged entries whose formula line or wrap-end line is
- * touched are DROPPED (the band disappears for up to one 120ms measure
- * window — 宁缺毋错) instead of mapped blindly; untouched entries are mapped
- * through the change as before. Rewritten by the measure plugin after its
- * debounce (same write/discipline as the tops field). Exported for headless
+ * touched are DROPPED (the band disappears for up to one next-macrotask measure
+ * pass — 宁缺毋错) instead of mapped blindly; untouched entries are mapped
+ * through the change as before. Rewritten by the measure plugin in the next
+ * macrotask (same write/discipline as the tops field). Exported for headless
  * tests.
  */
 export const livePreviewInlineMathWrapEndsField = StateField.define<ReadonlyMap<number, number>>({
@@ -1484,9 +1484,9 @@ export function shouldScheduleInlineMathMeasure(update: ViewUpdate): boolean {
  * them into livePreviewInlineMathVisualTopsField via a deferred dispatch
  * (skipped when the value is unchanged, so there is no dispatch loop).
  *
- * Measurement passes are DEBOUNCED (120ms quiet period after the last doc
- * change): transient layouts while typing — where partially-formed formulas
- * already produced bands that shift later formulas down — would otherwise
+ * Measurement passes are scheduled as zero-delay macrotasks (next-macrotask
+ * after any doc change): transient layouts while typing — where partially-formed
+ * formulas already produced bands that shift later formulas down — would otherwise
  * bake a false split into the tops map and lock it in.
  */
 const inlineMathVisualMeasurePlugin = ViewPlugin.fromClass(
@@ -1523,7 +1523,7 @@ const inlineMathVisualMeasurePlugin = ViewPlugin.fromClass(
       this.measureTimer = setTimeout(() => {
         this.measureTimer = null;
         this.measureNow();
-      }, 120);
+      }, 0);
     }
 
     private measureNow(): void {
@@ -1844,6 +1844,22 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
     }
     bandFormulas.push(formula);
   }
+  // Unclosed single `$` ranges (mid-typing, no closing pair): add `cm-lp-math`
+  // neutralization so the lezer InlineMath node does not cause a sudden loss
+  // of syntax-highlighting decorations, which can reflow the line and
+  // visually displace the cursor. Paired `$...$` and `$$...$$` (any kind in
+  // scan.ranges) are already covered above; unclosed `$$` is multi-line and
+  // skipped below.
+  const allMathRanges = buildLivePreviewMathRanges(state.doc.toString(), scan.lineStarts);
+  const coveredFroms = new Set(scan.ranges.map((r) => r.from));
+  for (const mathRange of allMathRanges) {
+    if (mathRange.multiLine || coveredFroms.has(mathRange.from)) {
+      continue;
+    }
+    for (const piece of subtractCoveringSpans(mathRange.from, mathRange.to, scan.styles.spans)) {
+      decorations.push(markDecorationFor("cm-lp-math").range(piece.from, piece.to));
+    }
+  }
   const inlineMathGroups = groupInlineMathByVisualLine(
     bandFormulas,
     (from) => visualTops.get(from),
@@ -1871,7 +1887,7 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
     //
     // NO band until the wrap end has been measured against the EXPANDED
     // source ("宁缺毋错"): an unmeasured row renders without a band for
-    // one debounce window (~120ms) rather than flashing at the line-end
+    // one next-macrotask window rather than flashing at the line-end
     // fallback or, worse, at the formula end (which would split the row
     // and let the next measurement lock the wrong anchor in — the layout
     // stays clean, so measurement always lands on the natural wrap end).

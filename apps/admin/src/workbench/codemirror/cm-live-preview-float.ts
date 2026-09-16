@@ -173,6 +173,51 @@ export function computeLivePreviewFloatVerticalFit(
   return panelHeight <= sourceHeight + tolerance ? "float" : "below";
 }
 
+/**
+ * Mutation records are delivered after a relayout has appended/removed its
+ * own panels.  Only mutations below a panel (or in the editor content, where
+ * an async below-preview may have rendered) are meaningful.  In particular,
+ * a record whose target is the editor root is normally our own panel DOM
+ * bookkeeping and must not start another relayout.
+ */
+export function shouldRelayoutForLivePreviewMutation(input: {
+  targetIsEditorRoot: boolean;
+  targetIsFloatPanelRoot: boolean;
+  targetIsFloatPanelContent: boolean;
+  targetIsEditorContent: boolean;
+}): boolean {
+  if (input.targetIsEditorRoot || input.targetIsFloatPanelRoot) {
+    return false;
+  }
+  return input.targetIsFloatPanelContent || input.targetIsEditorContent;
+}
+
+interface LivePreviewBelowFallbackState {
+  contentRight: number;
+  lineEndXs: readonly number[];
+  sourceHeight: number;
+  naturalWidth: number;
+  panelHeight: number;
+}
+
+/** Exact geometry/content identity is intentional: any relevant change
+ * invalidates the shortcut and lets the normal measurement pass reconsider
+ * floating. */
+export function isLivePreviewBelowFallbackStable(
+  previous: LivePreviewBelowFallbackState | undefined,
+  current: LivePreviewBelowFallbackState
+): boolean {
+  return Boolean(
+    previous &&
+      previous.contentRight === current.contentRight &&
+      previous.sourceHeight === current.sourceHeight &&
+      previous.naturalWidth === current.naturalWidth &&
+      previous.panelHeight === current.panelHeight &&
+      previous.lineEndXs.length === current.lineEndXs.length &&
+      previous.lineEndXs.every((x, index) => x === current.lineEndXs[index])
+  );
+}
+
 export interface LivePreviewFloatAnchor {
   id: string;
   top: number;
@@ -247,7 +292,11 @@ export function getCmLivePreviewFloatExtension(): Extension {
        * switches). Invalidated when the panel's content mutates or an image
        * inside finishes loading/erroring.
        */
-      private readonly naturalWidths = new Map<string, number>();
+       private readonly naturalWidths = new Map<string, number>();
+       /** A below decision is retained while its measured inputs are stable.
+        * This prevents the vertical-fit probe from creating a visible panel on
+        * every rAF, while geometry/content changes still invalidate it. */
+       private readonly belowFallbacks = new Map<string, LivePreviewBelowFallbackState>();
       /** Bound fonts-settled handler (removed in destroy); see constructor. */
       private onFontsSettled: (() => void) | null = null;
 
@@ -270,14 +319,46 @@ export function getCmLivePreviewFloatExtension(): Extension {
         // true AND the natural-width measurement is re-taken (one fit
         // correction per content change, see computeLivePreviewFloatFit).
         this.mutationObserver = new MutationObserver((mutations) => {
+          let shouldRelayout = false;
           for (const mutation of mutations) {
+            const target = mutation.target as Node;
+            const targetIsEditorRoot = target === view.dom;
+            // CM itself inserts/removes decorations with target ===
+            // contentDOM. Those updates already flow through ViewPlugin.update
+            // and must not invalidate a settled fallback. Async preview work
+            // mutates a descendant of contentDOM instead.
+            const targetIsEditorContent = target !== view.contentDOM && view.contentDOM.contains(target);
+            let targetIsFloatPanelRoot = false;
+            let targetIsFloatPanelContent = false;
             for (const [key, entry] of this.panels) {
-              if (entry.panel.contains(mutation.target as Node)) {
+              if (entry.panel === target) {
+                targetIsFloatPanelRoot = true;
+              } else if (entry.panel.contains(target)) {
+                targetIsFloatPanelContent = true;
                 this.naturalWidths.delete(key);
+                this.belowFallbacks.delete(key);
               }
             }
+            if (targetIsEditorContent) {
+              // A below-source preview can render asynchronously and has no
+              // float panel to identify its key. Re-measure cached below
+              // decisions, but leave live panel caches untouched.
+              this.belowFallbacks.clear();
+            }
+            if (
+              shouldRelayoutForLivePreviewMutation({
+                targetIsEditorRoot,
+                targetIsFloatPanelRoot,
+                targetIsFloatPanelContent,
+                targetIsEditorContent
+              })
+            ) {
+              shouldRelayout = true;
+            }
           }
-          this.scheduleLayout();
+          if (shouldRelayout) {
+            this.scheduleLayout();
+          }
         });
         this.mutationObserver.observe(view.dom, { childList: true, subtree: true });
         // KaTeX (and its fonts) load lazily: font loading changes content
@@ -290,6 +371,7 @@ export function getCmLivePreviewFloatExtension(): Extension {
         if (typeof document !== "undefined" && document.fonts) {
           this.onFontsSettled = () => {
             this.naturalWidths.clear();
+            this.belowFallbacks.clear();
             this.scheduleLayout();
           };
           void document.fonts.ready.then(this.onFontsSettled);
@@ -471,14 +553,39 @@ export function getCmLivePreviewFloatExtension(): Extension {
           const startLine = state.doc.lineAt(range.from).number;
           const endLine = state.doc.lineAt(range.to).number;
           const lineEndXs: number[] = [];
-          for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
+           for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
             const x = this.view.coordsAtPos(state.doc.line(lineNumber).to)?.left;
             if (x !== undefined) {
-              lineEndXs.push(x - editorRect.left);
-            }
-          }
+               lineEndXs.push(x - editorRect.left);
+             }
+           }
 
-          let entry = this.panels.get(descriptor.key);
+           const fromBlock = this.view.lineBlockAt(range.from);
+           const toBlock = this.view.lineBlockAt(range.to);
+           const sourceHeight = toBlock.bottom - fromBlock.top;
+           const cachedNaturalW = this.naturalWidths.get(descriptor.key);
+           const previousFallback = this.belowFallbacks.get(descriptor.key);
+           // Once a fallback has been measured, do not create a panel merely
+           // to rediscover the same vertical (or horizontal) rejection. The
+           // exact geometry and content measurements in this identity are
+           // invalidated by resize, CM geometry updates, panel mutations, or
+           // async below-preview mutations.
+           if (
+             cachedNaturalW !== undefined &&
+             previousFallback &&
+             isLivePreviewBelowFallbackStable(previousFallback, {
+               contentRight,
+               lineEndXs,
+               sourceHeight,
+               naturalWidth: cachedNaturalW,
+               panelHeight: previousFallback.panelHeight
+             })
+           ) {
+             belowKeys.add(descriptor.key);
+             continue;
+           }
+
+           let entry = this.panels.get(descriptor.key);
           if (!entry) {
             const panel = document.createElement("div");
             panel.className = "cm-lp-float";
@@ -511,11 +618,18 @@ export function getCmLivePreviewFloatExtension(): Extension {
           // edge AND the preview content's natural width — a block floats
           // only when its content fits whole, at exactly that width.
           const naturalW = this.measureNaturalWidth(descriptor.key, entry);
-          const fit = computeLivePreviewFloatFit(lineEndXs, contentRight, naturalW);
-          if (fit.mode === "below") {
-            belowKeys.add(descriptor.key);
-            continue;
-          }
+           const fit = computeLivePreviewFloatFit(lineEndXs, contentRight, naturalW);
+           if (fit.mode === "below") {
+             belowKeys.add(descriptor.key);
+             this.belowFallbacks.set(descriptor.key, {
+               contentRight,
+               lineEndXs,
+               sourceHeight,
+               naturalWidth: naturalW,
+               panelHeight: 0
+             });
+             continue;
+           }
 
           // Reconciliation against the REAL content width (see
           // reconcileFloatWidth): under-measurement (sub-pixel rounding,
@@ -526,10 +640,17 @@ export function getCmLivePreviewFloatExtension(): Extension {
           const available = contentRight - (codeRight + FLOAT_PANEL_MARGIN + FLOAT_PANEL_MARGIN);
           const content = entry.panel.firstElementChild as HTMLElement | null;
           const reconciliation = reconcileFloatWidth(fit.width, content ? content.scrollWidth : 0, available);
-          if (reconciliation.kind === "below") {
-            belowKeys.add(descriptor.key);
-            continue;
-          }
+           if (reconciliation.kind === "below") {
+             belowKeys.add(descriptor.key);
+             this.belowFallbacks.set(descriptor.key, {
+               contentRight,
+               lineEndXs,
+               sourceHeight,
+               naturalWidth: naturalW,
+               panelHeight: entry.panel.offsetHeight
+             });
+             continue;
+           }
           if (reconciliation.kind === "grow") {
             this.naturalWidths.set(descriptor.key, reconciliation.width);
           }
@@ -537,15 +658,20 @@ export function getCmLivePreviewFloatExtension(): Extension {
           // Vertical fit: a panel taller than its source block would scroll
           // or overlay following text — fall back to the in-flow below-source
           // preview instead. Source height from the line-block anchors.
-          const fromBlock = this.view.lineBlockAt(range.from);
-          const toBlock = this.view.lineBlockAt(range.to);
-          const sourceHeight = toBlock.bottom - fromBlock.top;
-          if (computeLivePreviewFloatVerticalFit(entry.panel.offsetHeight, sourceHeight) === "below") {
-            belowKeys.add(descriptor.key);
-            continue;
-          }
+           if (computeLivePreviewFloatVerticalFit(entry.panel.offsetHeight, sourceHeight) === "below") {
+             belowKeys.add(descriptor.key);
+             this.belowFallbacks.set(descriptor.key, {
+               contentRight,
+               lineEndXs,
+               sourceHeight,
+               naturalWidth: naturalW,
+               panelHeight: entry.panel.offsetHeight
+             });
+             continue;
+           }
 
-          floatCandidates.push({ key: descriptor.key, range, entry });
+           this.belowFallbacks.delete(descriptor.key);
+           floatCandidates.push({ key: descriptor.key, range, entry });
           entry.panel.style.left = `${fit.left}px`;
           entry.panel.style.width = `${reconciliation.width}px`;
         }

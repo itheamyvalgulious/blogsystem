@@ -237,8 +237,11 @@ export function createCmCompletionExtension(): Extension {
       // re-queries), so the stock 75ms anti-misaccept window intermittently
       // turned a displayed panel's Enter into a newline (acceptCompletion
       // refused -> defaultKeymap newline). Our source is pre-filtered and
-      // prefix-anchored; there is no misaccept risk worth the window.
-      interactionDelay: 0,
+      // prefix-anchored; there is no misaccept risk worth the full 75ms, but
+      // a brief window prevents an IME-composition-commit race where the
+      // completion panel captures the next keystroke (IME candidate
+      // selection) and overwrites adjacent text ($1$).
+      interactionDelay: 50,
       defaultKeymap: false,
       override: [workbenchCompletionSource]
     })

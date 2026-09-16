@@ -26,6 +26,7 @@ npm workspaces monorepo（TypeScript, ESM）。包管理器只用 npm（pnpm 已
 - 禁止 `@ts-ignore`/`@ts-nocheck`；vendored/第三方模块用 ambient d.ts 声明。
 - catch 变量取文案用 `getErrorMessage(error)`（content-core），不要 `(error as Error).message`。
 - workspace 路径由代码根的 `config.json`（`{"workspace": "/abs/path"}`，gitignored）指定；`BLOG_SYSTEM_WORKSPACE` env 覆盖（CI/测试用）。其余配置（凭据、AI、编辑器）在 workspace 的 `config/` 下。
+- WSL/Linux 下本仓库可能通过 `/mnt/c/...` 访问 Windows 文件系统。根 `config.json` 可能保存 Windows 路径（如 `C:\\Projects\\blog_workspace`），此时 Linux/WSL 运行 `npm run dev` 前必须设置 `BLOG_SYSTEM_WORKSPACE=/mnt/c/Projects/blog_workspace`，或改为 Linux 绝对路径；否则 site 可能将 Windows 路径当成 Linux 路径直接使用而报 `ENOENT`。测试和 typecheck 主要使用仓库内 `node_modules`，通常不需要 workspace 内容目录，但运行前应确保已完成 `npm install`。
 - 凭据链：`ADMIN_PASSWORD`/`SESSION_SECRET`/`ADMIN_USERNAME` 依次取 env > workspace `config/admin.local.json` > 启动期随机生成（打印一次）；`HOST` 非 loopback 且两层都未设凭据会打印安全警告。
 - git 子进程固定 `LC_ALL=C`（输出按英文匹配）。
 - quiver 静态应用的权威副本只有一份：`packages/commutative/vendor/quiver/`；`apps/admin/public/quiver/` 是由 `scripts/sync-quiver.mjs`（admin 的 predev/prebuild 钩子）生成的拷贝，已 gitignore，升级 quiver 只改 vendor 那份。

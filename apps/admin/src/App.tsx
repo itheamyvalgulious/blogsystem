@@ -2,10 +2,13 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, use
 import { loader } from "@monaco-editor/react";
 import * as monacoEditor from "monaco-editor";
 import "katex/dist/katex.min.css";
-import { getErrorMessage, type ThemeCssAssetConfig } from "@blog-system/content-core";
+import { getErrorMessage, type FileSystemNode, type ThemeCssAssetConfig } from "@blog-system/content-core";
 import "./monaco-environment";
 
 import { LoginView } from "./components/LoginView";
+import { PdfExportDialog } from "./workbench/pdf-export-dialog";
+import type { PdfExportSettings } from "./workbench/pdf-types";
+import { exportArticlePdf, resolveArticleContent } from "./workbench/pdf-export";
 
 import {
   api,
@@ -116,7 +119,7 @@ import {
 
 loader.config({ monaco: monacoEditor });
 
-const PREVIEW_UPDATE_DEBOUNCE_MS = 50;
+const PREVIEW_UPDATE_DEBOUNCE_MS = 0;
 
 export function App() {
   const [initialCollapsedTreePaths] = useState(() =>
@@ -211,6 +214,10 @@ export function App() {
   const [folderMetadataDialog, setFolderMetadataDialog] = useState<FolderMetadataDialogState | null>(null);
   const [titleConflictState, setTitleConflictState] = useState<TitleConflictState | null>(null);
   const [textInputDialog, setTextInputDialog] = useState<TextInputDialogState | null>(null);
+  const [pdfExportTarget, setPdfExportTarget] = useState<{
+    articlePath: string;
+    articleTitle: string;
+  } | null>(null);
   const [editorReadyVersion, setEditorReadyVersion] = useState(0);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const editorRef = useRef<WorkbenchEditorHandle | null>(null);
@@ -1089,6 +1096,47 @@ export function App() {
     workbenchApiRef
   });
 
+  const onExportPdf = useCallback(async (targetNode: FileSystemNode) => {
+    if (targetNode.type !== "file" || targetNode.fileKind !== "article") return;
+    setPdfExportTarget({
+      articlePath: targetNode.path,
+      articleTitle: targetNode.article?.title ?? targetNode.name
+    });
+  }, []);
+
+  const handlePdfExportConfirm = useCallback(
+    async (settings: PdfExportSettings, info: { articlePath: string }) => {
+      setBusyMessage("Preparing PDF export...");
+      try {
+        // 1. Resolve content (prefer draft, fall back to API)
+        const record = await resolveArticleContent(info.articlePath, draftValuesRef);
+        const title = (record.title || info.articlePath.split("/").pop()) ?? "article";
+        const directory = record.directory;
+
+        // 2. Export PDF (marksdown rendering happens inside exportArticlePdf)
+        const result = await exportArticlePdf(info.articlePath, settings, {
+          markdown: record.body,
+          title,
+          directory,
+          themeGroups: enabledThemeGroups,
+          colorMode: activeTheme?.appearance ?? "dark",
+          renderStyleAssetVersion
+        });
+
+        if (result.canceled) {
+          setPageError(null);
+        } else if (result.filePath) {
+          setPageError(null);
+        }
+      } catch (error) {
+        setPageError(getErrorMessage(error));
+      } finally {
+        setBusyMessage(null);
+      }
+    },
+    [draftValuesRef, enabledThemeGroups, activeTheme?.appearance, renderStyleAssetVersion, setBusyMessage, setPageError]
+  );
+
   const { handleDocumentValueChange, handleEditorModelContentChange } = useEditorContentChange({
     activeDocument,
     activeDocumentSupportsPreview,
@@ -1188,6 +1236,15 @@ export function App() {
         <PreviewRenderDialog groups={enabledThemeGroups} onClose={() => setPreviewRenderDialogOpen(false)} />
       ) : null}
 
+      {pdfExportTarget ? (
+        <PdfExportDialog
+          articlePath={pdfExportTarget.articlePath}
+          articleTitle={pdfExportTarget.articleTitle}
+          onClose={() => setPdfExportTarget(null)}
+          onExport={handlePdfExportConfirm}
+        />
+      ) : null}
+
       {contextMenuState ? (
         <TreeContextMenu
           clipboard={treeClipboard}
@@ -1195,6 +1252,7 @@ export function App() {
           getCreateDialogMetadataDefaults={getCreateDialogMetadataDefaults}
           loadTree={loadTree}
           menuRef={contextMenuRef}
+          onExportPdf={onExportPdf}
           openFolderMetadataDialog={openFolderMetadataDialog}
           openRenameDialog={openRenameDialog}
           position={contextMenuPos}

@@ -356,6 +356,7 @@ interface TreeContextMenuProps {
   getCreateDialogMetadataDefaults: (entryType: "file" | "directory") => Record<string, string>;
   loadTree: () => Promise<unknown>;
   menuRef: RefObject<HTMLDivElement | null>;
+  onExportPdf: (node: FileSystemNode) => void;
   openFolderMetadataDialog: (node: { type: "directory"; path: string; name: string }) => void | Promise<void>;
   openRenameDialog: (node: FileSystemNode) => void | Promise<void>;
   position: { left: number; top: number };
@@ -377,6 +378,7 @@ export function TreeContextMenu({
   getCreateDialogMetadataDefaults,
   loadTree,
   menuRef,
+  onExportPdf,
   openFolderMetadataDialog,
   openRenameDialog,
   position,
@@ -391,6 +393,7 @@ export function TreeContextMenu({
   setTreeClipboard,
   targetNode: contextTargetNode
 }: TreeContextMenuProps) {
+  const isArticleFile = contextTargetNode?.type === "file" && contextTargetNode.fileKind === "article";
   return (
     <div className="context-menu-backdrop" onClick={() => setContextMenuState(null)} role="presentation">
       <div className="context-menu" ref={menuRef} style={{ left: position.left, top: position.top }} onClick={(event) => event.stopPropagation()}>
@@ -402,7 +405,8 @@ export function TreeContextMenu({
           ["copy", "Copy"],
           ["cut", "Cut"],
           ["paste", "Paste"],
-          ["delete", "Delete"]
+          ["delete", "Delete"],
+          ...(isArticleFile ? [["export-pdf", "Export PDF"]] : [])
         ].map(([action, label]) => (
           <button
             className={`context-menu-item ${action === "delete" ? "danger" : ""}`}
@@ -417,6 +421,10 @@ export function TreeContextMenu({
                     ? targetNode.path
                     : getParentPath(targetNode.path);
               setContextMenuState(null);
+              if (action === "export-pdf" && targetNode && targetNode.type === "file") {
+                onExportPdf(targetNode);
+                return;
+              }
               if (action === "copy" && targetNode) {
                 setTreeClipboard({ path: targetNode.path, mode: "copy" });
                 return;

@@ -1401,10 +1401,78 @@ a {
   gap: 8px;
 }
 
-.preview-render-dialog {
+.preview-render-dialog,
+.pdf-export-dialog {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.pdf-export-dialog h2 {
+  margin: 0;
+}
+
+.pdf-export-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pdf-export-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pdf-export-settings label > select,
+.pdf-export-settings label > input[type="range"] {
+  width: 100%;
+}
+
+.pdf-export-margins {
+  border: 1px solid var(--wb-border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.pdf-export-margins legend {
+  color: var(--wb-foreground-muted);
+  font-size: 0.78rem;
+  padding: 0 6px;
+}
+
+.pdf-export-margin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.pdf-export-margin-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pdf-export-margin-grid label span {
+  color: var(--wb-foreground-muted);
+  font-size: 0.72rem;
+}
+
+.pdf-export-margin-grid input {
+  width: 100%;
+  border: 1px solid var(--wb-input-border);
+  border-radius: 8px;
+  background: var(--wb-input-bg);
+  color: var(--wb-foreground);
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  min-height: 26px;
+}
+
+.pdf-export-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
 }
 
 .preview-render-style-list {
