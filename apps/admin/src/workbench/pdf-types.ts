@@ -46,6 +46,13 @@ export interface PdfPrintRequest {
   printBackground: boolean;
   scale: number;
   marginsMm: PdfMarginsMm;
+
+  /**
+   * Pre-rendered article HTML document (complete with all CSS inlined).
+   * The main process uses a dedicated hidden BrowserWindow instead of
+   * printing the admin BrowserWindow, so the PDF captures only the article.
+  */
+  html?: string;
 }
 
 /** The response from the preload IPC after the print dialog resolves. */

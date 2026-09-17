@@ -60,6 +60,14 @@ export interface PrintPdfRequest {
    * When absent, CSS @page margin rules are honored (preferCSSPageSize=true).
    */
   marginsMm?: PrintPdfMarginsMm;
+
+  /**
+   * Pre-rendered article HTML document (complete with all CSS inlined).
+   * When provided, the main process creates a dedicated hidden BrowserWindow
+   * with this content and calls printToPDF on that window instead of on the
+   * admin BrowserWindow. This avoids capturing the admin UI chrome.
+  */
+  html?: string;
 }
 
 export type PrintPdfResult =

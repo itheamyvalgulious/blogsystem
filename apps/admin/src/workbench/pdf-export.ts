@@ -1,21 +1,17 @@
 /**
  * PDF export renderer service.
  *
- * Builds a temporary DOM containing only the article content, loads the same
- * static-site theme CSS assets (in the same order as the preview/static site),
- * preserves KaTeX/code/highlight/custom-fence output, injects print CSS, and
- * triggers the Electron print-to-PDF IPC.
- *
- * Every DOM mutation is cleaned up in a `finally` block. Fonts and images
- * referenced by the article are waited for (via
- * `document.fonts.ready` / image `onload`) before the IPC call.
+ * Renders the article markdown, fetches theme CSS assets (same as the static
+ * site / preview), builds a complete self-contained HTML document (KaTeX,
+ * highlight, @page, and print CSS all inlined), and sends it to the Electron
+ * main process via IPC. The main process opens a native save dialog, spawns a
+ * dedicated hidden BrowserWindow, generates the PDF via printToPDF, and writes
+ * it to the chosen file path.
  *
  * Margin control strategy:
  *   The renderer injects `@page` CSS with the user's margin values so the
- *   print output respects them regardless of how the main process translates
- *   the IPC payload. The main process (ipc handler) may still forward the
- *   marginsMm field to `webContents.printToPDF` options as a secondary layer;
- *   if both are set, the more restrictive rule wins.
+ *   print output respects them. The main process also forwards the marginsMm
+ *   field to electron's PrintToPDFOptions as a secondary layer.
  */
 
 import {
@@ -23,7 +19,6 @@ import {
   rewriteManagedMediaTextReferences,
   rewriteManagedMediaUrls,
   rewriteRelativeAssetUrls,
-  getErrorMessage,
   highlightThemeCss,
   type ArticleRecord,
   type ThemeGroupSummary
@@ -141,10 +136,11 @@ async function resolveArticleContent(
  * 2. Parses frontmatter to get title/directory.
  * 3. Renders markdown via the shared pipeline.
  * 4. Fetches theme CSS assets.
- * 5. Builds a complete HTML document.
- * 6. Creates a temporary hidden iframe, loads the HTML, waits for fonts/images.
- * 7. Calls the Electron preload print-to-PDF IPC.
- * 8. Cleans up the iframe in `finally`.
+ * 5. Builds a complete HTML document with a <base> tag for URL resolution.
+ * 6. Sends the HTML to the main process via IPC.
+ * 7. The main process opens a native save dialog, spawns a dedicated hidden
+ *    BrowserWindow, generates the PDF, writes it to the chosen path, and
+ *    returns the result.
  *
  * @throws {Error} If not running in Electron (blogSystemDesktop API missing).
  */
@@ -174,20 +170,6 @@ export async function exportArticlePdf(
     );
   }
 
-  // Build the print request
-  const safeFileName = options.title
-    .replace(/[^a-zA-Z0-9_\- ]/g, "")
-    .trim()
-    .replace(/\s+/g, "_");
-  const printRequest: PdfPrintRequest = {
-    defaultFileName: `${safeFileName || "article"}.pdf`,
-    pageSize: settings.pageSize,
-    landscape: settings.orientation === "landscape",
-    printBackground: settings.printBackground,
-    scale: settings.scale,
-    marginsMm: settings.marginsMm
-  };
-
   // Render markdown
   const articleHtml = await renderArticleHtml(options.markdown, options.directory);
 
@@ -198,66 +180,32 @@ export async function exportArticlePdf(
     options.renderStyleAssetVersion
   );
 
-  // Build the full HTML document
-  const html = buildPdfHtml(options.title, articleHtml, settings, themeCssLinks, katexCssRaw, highlightThemeCss);
+  // Build the full HTML document with a <base> tag so the main process
+  // can resolve relative asset URLs when loading it in a dedicated
+  // hidden BrowserWindow.
+  const baseUrl = window.location.origin;
+  const html = buildPdfHtml(options.title, articleHtml, settings, themeCssLinks, katexCssRaw, highlightThemeCss, baseUrl);
 
-  // Create a temporary hidden iframe for rendering
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText =
-    "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;border:none;visibility:hidden";
-  iframe.srcdoc = html;
-  document.body.appendChild(iframe);
+  // Build the print request with the rendered HTML — the main process
+  // will spawn a temporary hidden BrowserWindow to generate the PDF.
+  const safeFileName = options.title
+    .replace(/[^a-zA-Z0-9_\- ]/g, "")
+    .trim()
+    .replace(/\s+/g, "_");
+  const printRequest: PdfPrintRequest = {
+    defaultFileName: `${safeFileName || "article"}.pdf`,
+    pageSize: settings.pageSize,
+    landscape: settings.orientation === "landscape",
+    printBackground: settings.printBackground,
+    scale: settings.scale,
+    marginsMm: settings.marginsMm,
+    html
+  };
 
-  try {
-    // Wait for the iframe to load
-    await new Promise<void>((resolve, reject) => {
-      iframe.onload = () => resolve();
-      iframe.onerror = () => reject(new Error("Failed to load PDF preview iframe"));
-      // srcdoc may fire load synchronously in some engines; set a safety timer
-      const timer = setTimeout(() => resolve(), 500);
-      const originalResolve = resolve;
-      iframe.onload = () => {
-        clearTimeout(timer);
-        originalResolve();
-      };
-    });
-
-    // Wait for web fonts to load inside the iframe
-    if (iframe.contentDocument?.fonts) {
-      await iframe.contentDocument.fonts.ready;
-    }
-
-    // Wait for images to load inside the iframe
-    const images = iframe.contentDocument?.querySelectorAll("img") ?? [];
-    if (images.length > 0) {
-      await Promise.allSettled(
-        Array.from(images).map(
-          (img) =>
-            new Promise<void>((resolve) => {
-              if (img.complete) {
-                resolve();
-              } else {
-                img.onload = () => resolve();
-                img.onerror = () => resolve(); // don't block on broken images
-              }
-            })
-        )
-      );
-    }
-
-    // Call the preload IPC
-    const result = await desktopApi.printCurrentWindowToPdf(printRequest);
-    return result;
-  } finally {
-    // Clean up the iframe
-    try {
-      if (iframe.parentNode) {
-        iframe.parentNode.removeChild(iframe);
-      }
-    } catch {
-      // Ignore cleanup errors
-    }
-  }
+  // Call the preload IPC — the main process handles the save dialog,
+  // PDF generation in a dedicated window, and file writing.
+  const result = await desktopApi.printCurrentWindowToPdf(printRequest);
+  return result;
 }
 
 export {

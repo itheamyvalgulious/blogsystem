@@ -92,6 +92,44 @@ test("buildPdfHtml escapes HTML in the title", () => {
   assert.ok(html.includes("<title>Article &lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;</title>"));
 });
 
+test("buildPdfHtml omits <base> tag when baseUrl is not provided", () => {
+  const html = buildPdfHtml(
+    "No Base",
+    "<p>test</p>",
+    DEFAULT_PDF_SETTINGS,
+    [],
+    "",
+    ""
+  );
+  assert.ok(!html.includes("<base "));
+});
+
+test("buildPdfHtml includes <base> tag when baseUrl is provided", () => {
+  const html = buildPdfHtml(
+    "With Base",
+    "<p>test</p>",
+    DEFAULT_PDF_SETTINGS,
+    [],
+    "",
+    "",
+    "http://127.0.0.1:3456"
+  );
+  assert.ok(html.includes('<base href="http://127.0.0.1:3456">'));
+});
+
+test("buildPdfHtml escapes special characters in baseUrl", () => {
+  const html = buildPdfHtml(
+    "Escaped Base",
+    "<p>test</p>",
+    DEFAULT_PDF_SETTINGS,
+    [],
+    "",
+    "",
+    'http://example.com/path?query=<"test">'
+  );
+  assert.ok(html.includes('<base href="http://example.com/path?query=&lt;&quot;test&quot;&gt;">'));
+});
+
 // ---------------------------------------------------------------------------
 // PAGE_SIZE_CSS constants
 // ---------------------------------------------------------------------------

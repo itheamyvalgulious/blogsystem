@@ -53,6 +53,10 @@ export function buildPageCss(settings: PdfExportSettings): string {
  * @param themeCssLinks - Inline <style> elements for theme CSS
  * @param katexCss - KaTeX CSS text
  * @param highlightCss - Syntax highlight CSS text
+ * @param baseUrl - Optional base URL (e.g. "http://127.0.0.1:3456") for
+ *                  resolving relative asset URLs via a <base> tag.
+ *                  Used when the HTML is loaded in a dedicated hidden
+ *                  BrowserWindow for PDF generation.
  */
 export function buildPdfHtml(
   title: string,
@@ -60,16 +64,20 @@ export function buildPdfHtml(
   settings: PdfExportSettings,
   themeCssLinks: string[],
   katexCss: string,
-  highlightCss: string
+  highlightCss: string,
+  baseUrl?: string
 ): string {
   const pageCss = buildPageCss(settings);
+  const baseTag = baseUrl
+    ? `<base href="${escapeHtmlAttribute(baseUrl)}">\n`
+    : "";
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtmlAttribute(title)}</title>
-${themeCssLinks.join("\n")}
+${baseTag}${themeCssLinks.join("\n")}
 <style>
 ${katexCss}
 ${highlightCss}

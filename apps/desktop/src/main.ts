@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, dialog } from "electron";
 import { appendFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -96,6 +96,55 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+/**
+ * Create a temporary hidden BrowserWindow, load the given HTML document,
+ * generate a PDF, then close the window and return the PDF buffer.
+ *
+ * The HTML is written to a temporary file to avoid CORS restrictions when
+ * loading resources (images, fonts) from the admin server. The file is
+ * cleaned up after PDF generation.
+ */
+async function generatePdfFromHtml(
+  html: string,
+  printOptions: Electron.PrintToPDFOptions
+): Promise<Buffer> {
+  const tempDir = await mkdtemp(path.join(app.getPath("temp"), "blog-system-pdf-"));
+  const tempFile = path.join(tempDir, "article.html");
+  let pdfWindow: BrowserWindow | null = null;
+
+  try {
+    await writeFile(tempFile, html, "utf8");
+    pdfWindow = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    await pdfWindow.loadURL(pathToFileURL(tempFile).href);
+    await pdfWindow.webContents.executeJavaScript(`Promise.all([
+      document.fonts ? document.fonts.ready : Promise.resolve(),
+      ...Array.from(document.images, image => image.complete
+        ? Promise.resolve()
+        : new Promise(resolve => {
+            image.addEventListener("load", resolve, { once: true });
+            image.addEventListener("error", resolve, { once: true });
+          }))
+    ])`);
+    return await pdfWindow.webContents.printToPDF(printOptions);
+  } finally {
+    if (pdfWindow && !pdfWindow.isDestroyed()) {
+      pdfWindow.destroy();
+    }
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+    } catch {
+      // Temp cleanup is best-effort.
+    }
+  }
+}
+
 async function handlePrintToPdf(
   event: Electron.IpcMainInvokeEvent,
   request: unknown
@@ -123,7 +172,7 @@ async function handlePrintToPdf(
   const printBackground = body.printBackground === true;
   const scale = clamp(typeof body.scale === "number" ? body.scale : 1, 0.1, 2.0);
   const generateTaggedPDF = body.documentOutline === true;
-
+  const html = typeof body.html === "string" ? body.html : undefined;
   // --- Native save dialog ---
   const { canceled, filePath } = await dialog.showSaveDialog(window, {
     title: "Export Article as PDF",
@@ -160,7 +209,16 @@ async function handlePrintToPdf(
   }
 
   // --- Generate PDF ---
-  const pdfBuffer = await window.webContents.printToPDF(printOptions);
+  let pdfBuffer: Buffer;
+
+  if (html) {
+    // Renderer provided the article HTML — use a dedicated hidden window
+    // to avoid capturing the admin UI chrome.
+    pdfBuffer = await generatePdfFromHtml(html, printOptions);
+  } else {
+    // Fallback: capture the admin window (legacy path)
+    pdfBuffer = await window.webContents.printToPDF(printOptions);
+  }
 
   // --- Write to chosen path ---
   await writeFile(filePath, pdfBuffer);
