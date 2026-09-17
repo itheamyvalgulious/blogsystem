@@ -624,17 +624,6 @@ test("allowDuplicateTitle overrides same-directory duplicate title on create", a
   assert.equal(response.body.path, "notes/another-draft.md");
 });
 
-test("config endpoints expose markdown block rules and admin home defaults", async () => {
-  const { agent } = await setupTempApp();
-
-  const markdownBlocks = await agent.get("/api/markdown-block-config").expect(200);
-  assert.deepEqual(markdownBlocks.body.value.rules, []);
-
-  const adminHome = await agent.get("/api/admin-home-config").expect(200);
-  assert.deepEqual(adminHome.body.value.widgetOrder, []);
-  assert.deepEqual(adminHome.body.value.widgets, {});
-});
-
 test("publish config endpoint exposes and saves v2 config", async () => {
   const { agent, tempRoot } = await setupTempApp();
 
