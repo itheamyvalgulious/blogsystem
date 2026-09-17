@@ -173,6 +173,18 @@ export function computeLivePreviewFloatVerticalFit(
   return panelHeight <= sourceHeight + tolerance ? "float" : "below";
 }
 
+/** Source text positions that cannot resolve to an end-boundary widget. */
+export function resolveLivePreviewSourceLineAnchors(
+  doc: { lineAt(pos: number): { from: number } },
+  from: number,
+  to: number
+): { from: number; to: number } {
+  return {
+    from: doc.lineAt(from).from,
+    to: Math.max(from, to - 1)
+  };
+}
+
 /**
  * Mutation records are delivered after a relayout has appended/removed its
  * own panels.  Only mutations below a panel (or in the editor content, where
@@ -554,15 +566,22 @@ export function getCmLivePreviewFloatExtension(): Extension {
           const endLine = state.doc.lineAt(range.to).number;
           const lineEndXs: number[] = [];
            for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
-            const x = this.view.coordsAtPos(state.doc.line(lineNumber).to)?.left;
+             // Resolve toward source text. At the same offset, assoc +1 may
+             // enter a below-preview block widget and feed its right edge
+             // back into the float-fit decision.
+             const x = this.view.coordsAtPos(state.doc.line(lineNumber).to, -1)?.left;
             if (x !== undefined) {
                lineEndXs.push(x - editorRect.left);
              }
            }
 
-           const fromBlock = this.view.lineBlockAt(range.from);
-           const toBlock = this.view.lineBlockAt(range.to);
-           const sourceHeight = toBlock.bottom - fromBlock.top;
+           const sourceAnchors = resolveLivePreviewSourceLineAnchors(state.doc, range.from, range.to);
+           const sourceFromCoords = this.view.coordsAtPos(sourceAnchors.from);
+           const sourceToCoords = this.view.coordsAtPos(sourceAnchors.to);
+           const sourceHeight =
+             sourceFromCoords && sourceToCoords
+               ? sourceToCoords.bottom - sourceFromCoords.top
+               : this.view.defaultLineHeight;
            const cachedNaturalW = this.naturalWidths.get(descriptor.key);
            const previousFallback = this.belowFallbacks.get(descriptor.key);
            // Once a fallback has been measured, do not create a panel merely
@@ -699,9 +718,17 @@ export function getCmLivePreviewFloatExtension(): Extension {
         // offset or every panel lands ~one editorTop too low.
         const documentTopInEditor = this.view.documentTop - editorRect.top;
         const anchors: LivePreviewFloatAnchor[] = floatCandidates.map((candidate) => {
-          const fromBlock = this.view.lineBlockAt(candidate.range.from);
-          const toBlock = this.view.lineBlockAt(candidate.range.to);
-          const rangeCenter = documentTopInEditor + (fromBlock.top + toBlock.bottom) / 2;
+          const sourceAnchors = resolveLivePreviewSourceLineAnchors(
+            state.doc,
+            candidate.range.from,
+            candidate.range.to
+          );
+          const sourceFromCoords = this.view.coordsAtPos(sourceAnchors.from);
+          const sourceToCoords = this.view.coordsAtPos(sourceAnchors.to);
+          const rangeCenter =
+            sourceFromCoords && sourceToCoords
+              ? (sourceFromCoords.top + sourceToCoords.bottom) / 2 - editorRect.top
+              : documentTopInEditor + this.view.lineBlockAt(sourceAnchors.from).top + this.view.defaultLineHeight / 2;
           const panelHeight = candidate.entry.panel.offsetHeight || 48;
           return { id: candidate.key, top: rangeCenter - panelHeight / 2, height: panelHeight };
         });

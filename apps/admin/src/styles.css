@@ -955,15 +955,9 @@ a {
 }
 
 .cm-lp-inline-math-row {
-  /* R3 inline band: the widget is INLINE (non-block, see
-     cm-live-preview-widgets.ts); this inline-level full-width box never
-     fits the current line box's remaining space, so it wraps onto a line
-     box of its own directly under the formula's visual segment and pushes
-     the following text down. Height enters CM's line layout as ordinary
-     inline content — no block-widget height accounting. No frame; vertical
-     padding centers the formulas in the new row. NO vertical margin:
-     inline-level boxes ignore vertical margins, so spacing belongs in
-     padding (counted by offsetHeight). */
+  /* Shared row DOM: wrapped formulas use an inline widget while unwrapped
+     formulas use a native line-end block widget. No frame; vertical padding
+     centers the formulas in the preview row. */
   display: inline-block;
   width: 100%;
   vertical-align: top;

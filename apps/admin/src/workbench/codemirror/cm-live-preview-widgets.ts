@@ -227,11 +227,10 @@ export function computeInlineMathFormulaLayout(
 }
 
 /**
- * Inline-math preview band: an INLINE (non-block) widget anchored at the
- * natural wrap end of the formula group's visual row (see
- * resolveInlineMathBandAnchor — `side: -1`, i.e. just BEFORE the first
- * position of the following row). The row's DOM is an inline-level
- * full-width box (`display: inline-block; width: 100%`, see
+ * Inline-math preview band. Wrapped source rows mount it as an inline widget
+ * at the natural wrap end; unwrapped rows mount the same DOM as a native
+ * block widget at the logical line end so it cannot share the active caret
+ * or IME composition boundary. The row DOM is a full-width box (see
  * .cm-lp-inline-math-row): it never fits the current line box's remaining
  * space, so CSS line breaking gives it a line box of its own directly under
  * the formula's visual segment and pushes the following text onto the next

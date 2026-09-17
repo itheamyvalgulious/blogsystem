@@ -17,6 +17,7 @@ import {
   reconcileFloatWidth,
   resolveLivePreviewFloatLayout,
   resolveLivePreviewLayoutMode,
+  resolveLivePreviewSourceLineAnchors,
   isLivePreviewBelowFallbackStable,
   shouldRelayoutForLivePreviewMutation
 } from "./cm-live-preview-float";
@@ -35,6 +36,7 @@ import {
   computeLivePreviewStyles,
   findVisualRowWrapEnd,
   groupInlineMathByVisualLine,
+  isInlineMathFormulaInZone,
   isInsideMathRange,
   intersectsMultiLineMathRange,
   livePreviewDecorationsField,
@@ -285,7 +287,7 @@ function blockWidgetSpecs(state: EditorState): BlockWidgetSpec[] {
   return specs;
 }
 
-/** Inline-math bands: inline (non-block) point decorations of InlineMathRowWidget. */
+/** Inline-math bands: point decorations backed by InlineMathRowWidget. */
 function inlineMathBandSpecs(state: EditorState): BlockWidgetSpec[] {
   const specs: BlockWidgetSpec[] = [];
   state
@@ -625,17 +627,15 @@ test("inline math bands stay below the source in float mode", () => {
     // Bands only render once the wrap end is measured (宁缺毋错).
     state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 7]])) }).state;
 
-    // Below mode: one inline-math band (inline, not counted by
-    // blockWidgetSpecs) plus the $$ block widget.
+    // Below mode: one line-end math band plus the $$ block widget.
     assert.equal(inlineMathBandSpecs(state).length, 1);
-    assert.equal(blockWidgetSpecs(state).length, 1);
+    assert.equal(blockWidgetSpecs(state).length, 2);
 
     reportLivePreviewFloatMode(standInView, true);
     state = state.update({ effects: refreshLivePreview.of(null) }).state;
-    // Float mode: the $$ below-widget is suppressed (no block widgets left);
-    // the inline-math band always stays below (measured wrap end, 7).
-    assert.deepEqual(blockWidgetSpecs(state), []);
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 7, to: 7, side: -1 }]);
+    // Float mode: the $$ below-widget is suppressed; the math band remains.
+    assert.equal(blockWidgetSpecs(state).length, 1);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 7, to: 7, side: 1 }]);
   } finally {
     reportLivePreviewFloatMode(standInView, false);
     setReadingMode("read");
@@ -758,10 +758,20 @@ test("reading mode inline-replaces formulas outside the cursor region", () => {
     assert.equal(replaceWidgetSpecs(state).length, 0);
     assert.equal(inlineMathBandSpecs(state).length, 0);
     state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 7]])) }).state;
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 7, to: 7, side: -1 }]);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 7, to: 7, side: 1 }]);
   } finally {
     setReadingMode("read");
   }
+});
+
+test("reading mode keeps an inline formula expanded during same-line input after it", () => {
+  setReadingMode("read");
+  const formula = { from: 0, to: 3 };
+  const composing = EditorState.create({ doc: "$1$qie", selection: { anchor: 6 } });
+  const nextLine = EditorState.create({ doc: "$1$\nqie", selection: { anchor: 7 } });
+
+  assert.equal(isInlineMathFormulaInZone(composing, formula), true);
+  assert.equal(isInlineMathFormulaInZone(nextLine, formula), false);
 });
 
 test("write mode never replaces source", () => {
@@ -868,7 +878,7 @@ test("same-line formulas share one band anchored at the last formula's wrap end"
       extensions: [cmLivePreview]
     });
     state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[10, 17]])) }).state;
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 17, to: 17, side: -1 }]);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 17, to: 17, side: 1 }]);
   } finally {
     setReadingMode("read");
   }
@@ -904,7 +914,7 @@ test("measured visual tops regroup a same-line formula pair into separate bands"
     }).state;
     assert.deepEqual(inlineMathBandSpecs(state), [
       { from: 8, to: 8, side: -1 },
-      { from: 17, to: 17, side: -1 }
+      { from: 17, to: 17, side: 1 }
     ]);
   } finally {
     setReadingMode("read");
@@ -966,19 +976,17 @@ test("computeLivePreviewStyles suppresses hr and setext h2 inside $$ blocks", ()
 
 // --- Band decoration form (inline widget, natural wrap-end anchor) -----------
 
-test("inline math band is an inline (non-block) widget that waits for the wrap end", () => {
+test("unwrapped inline math band uses a line-end block widget after measurement", () => {
   setReadingMode("write");
   try {
     // 宁缺毋错: unmeasured rows render NO band (never a fallback position).
     let state = EditorState.create({ doc: "a $x$ more\n", extensions: [cmLivePreview] });
     assert.equal(inlineMathBandSpecs(state).length, 0);
-    // Once measured (short line → wrap end = line end, 10), the band
-    // appears there as an inline widget.
+    // Once measured (short line → wrap end = line end, 10), the band uses
+    // CM's block-widget path so it cannot capture the line-end caret.
     state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 10]])) }).state;
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 10, to: 10, side: -1 }]);
-    // The band must NOT be a block widget — mid-line block widgets are what
-    // desynced CM's height map (see InlineMathRowWidget).
-    assert.equal(blockWidgetSpecs(state).length, 0);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 10, to: 10, side: 1 }]);
+    assert.deepEqual(blockWidgetSpecs(state), [{ from: 10, to: 10, side: 1 }]);
   } finally {
     setReadingMode("read");
   }
@@ -1020,7 +1028,7 @@ test("findVisualRowWrapEnd: binary search for the first lower-row position", () 
   assert.equal(findVisualRowWrapEnd(40, 80, 121, topFor), 80);
 });
 
-test("inline math bands move before trailing spaces so the line-end caret remains visible", () => {
+test("inline math bands use the logical line end when trailing spaces remain", () => {
   const doc = EditorState.create({ doc: "a $x$   \n" }).doc;
   // Trailing-whitespace rest: the widget anchors at the formula end with
   // side 1 (it stays the line's last inline content).
@@ -1034,7 +1042,7 @@ test("inline math bands move before trailing spaces so the line-end caret remain
       extensions: [cmLivePreview]
     });
     state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 8]])) }).state;
-    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 5, to: 5, side: 1 }]);
+    assert.deepEqual(inlineMathBandSpecs(state), [{ from: 8, to: 8, side: 1 }]);
   } finally {
     setReadingMode("read");
   }
@@ -1129,7 +1137,7 @@ test("first entry anchors at the measured wrap end; cycles are identical", () =>
     const enter = (s: EditorState) =>
       s.update({ selection: { anchor: 11 }, effects: setInlineMathWrapEnds.of(wrapEnds) }).state;
     const cycle1 = enter(state);
-    assert.deepEqual(inlineMathBandSpecs(cycle1), [{ from: 17, to: 17, side: -1 }]);
+    assert.deepEqual(inlineMathBandSpecs(cycle1), [{ from: 17, to: 17, side: 1 }]);
     // Exit → replaced again; re-enter → pixel-identical spec (cycle consistency).
     state = cycle1.update({ selection: { anchor: 0 } }).state;
     assert.equal(inlineMathBandSpecs(state).length, 0);
@@ -1547,6 +1555,12 @@ test("computeLivePreviewFloatVerticalFit: floats when panel fits within source h
   assert.equal(computeLivePreviewFloatVerticalFit(50, 200), "float");
   // Zero-height panel (not yet measured) never exceeds source with tolerance.
   assert.equal(computeLivePreviewFloatVerticalFit(0, 0), "float");
+});
+
+test("source height anchors stay on text lines instead of the range-end widget boundary", () => {
+  const doc = EditorState.create({ doc: "$$\nx\n$$\nafter" }).doc;
+  assert.deepEqual(resolveLivePreviewSourceLineAnchors(doc, 0, 7), { from: 0, to: 6 });
+  assert.deepEqual(resolveLivePreviewSourceLineAnchors(doc, 0, 2), { from: 0, to: 1 });
 });
 
 test("float mutation filtering ignores the plugin's root/panel bookkeeping", () => {

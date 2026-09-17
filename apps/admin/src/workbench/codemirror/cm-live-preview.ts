@@ -545,12 +545,8 @@ export function computeLivePreviewRanges(docText: string): LivePreviewRange[] {
     }
 
     // Inline math: same-line `$...$` pairs only (spec excludes multi-line
-    // inline math and `$$` pairs). ONE range per formula, anchored at the
-    // formula end — the R3 band is an inline (non-block) widget right at
-    // that offset; its full-width inline-level box wraps onto its own line
-    // box directly under the formula's visual segment, even inside wrapped
-    // paragraphs (multiple formulas on one visual line share one band via
-    // groupInlineMathByVisualLine).
+    // inline math and `$$` pairs). ONE range per formula; formulas on one
+    // visual line share one preview band via groupInlineMathByVisualLine.
     if (pair.startLine !== pair.endLine) {
       continue;
     }
@@ -1221,6 +1217,25 @@ export function isLivePreviewRangeInZone(state: EditorState, range: LivePreviewR
   return isInCursorRegion(range.from - 1, range.to + 1, state.selection.main.head);
 }
 
+/**
+ * Keep an inline formula expanded while input continues to its right on the
+ * same logical line. Replacing it during IME composition rebuilds the active
+ * composition DOM and can make the browser commit over formula source.
+ */
+export function isInlineMathFormulaInZone(
+  state: EditorState,
+  formula: Pick<LivePreviewInlineMathFormula, "from" | "to">
+): boolean {
+  if (getReadingMode() === "write") {
+    return true;
+  }
+  const head = state.selection.main.head;
+  return (
+    isInCursorRegion(formula.from - 1, formula.to + 1, head) ||
+    (head > formula.to && state.doc.lineAt(head).number === state.doc.lineAt(formula.to).number)
+  );
+}
+
 // --- Inline math band grouping (visual lines) ---------------------------------
 
 /**
@@ -1538,7 +1553,6 @@ const inlineMathVisualMeasurePlugin = ViewPlugin.fromClass(
           const viewportFrom = Math.max(0, view.viewport.from - VISUAL_TOPS_BUFFER_CHARS);
           const viewportTo = Math.min(state.doc.length, view.viewport.to + VISUAL_TOPS_BUFFER_CHARS);
           const reading = getReadingMode() === "read";
-          const head = state.selection.main.head;
           const tops = new Map<number, number>();
           const wrapEnds = new Map<number, number>();
           for (const range of scan.ranges) {
@@ -1558,7 +1572,7 @@ const inlineMathVisualMeasurePlugin = ViewPlugin.fromClass(
               // stale line-end anchor on first entry), so it is left out
               // entirely: the builder hides the band until a measurement
               // against the expanded source exists.
-              if (reading && !isInCursorRegion(formula.from - 1, formula.to + 1, head)) {
+              if (reading && !isInlineMathFormulaInZone(state, formula)) {
                 continue;
               }
               const coords = view.coordsAtPos(formula.from);
@@ -1824,7 +1838,7 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
       continue;
     }
     const formula = range.formulas[0];
-    if (reading && !isInCursorRegion(formula.from - 1, formula.to + 1, state.selection.main.head)) {
+    if (reading && !isInlineMathFormulaInZone(state, formula)) {
       const replaceKey = `imr:${salt}:${contentHash(formula.tex)}`;
       decorations.push(
         Decoration.replace({
@@ -1867,11 +1881,10 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
   );
   for (const group of inlineMathGroups) {
     const key = `im:${salt}:${contentHash(group.formulas.map((formula) => formula.tex).join("\n"))}`;
-    // R3+: INLINE (non-block) widget anchored at the NATURAL END (wrap
-    // point) of the formula group's visual row — measured by the plugin
-    // above into livePreviewInlineMathWrapEndsField (the last formula's
-    // row: tops grouping guarantees one row per measured group). The
-    // band's DOM is an inline-level full-width box
+    // Wrapped rows use an inline widget anchored at the NATURAL END (wrap
+    // point) of the formula group's visual row; unwrapped rows take the
+    // native line-end block-widget path below. The band's DOM is a full-width
+    // box
     // (display: inline-block; width: 100% — see .cm-lp-inline-math-row), so
     // it wraps onto its own line box exactly where the text itself would
     // break — text before the anchor is laid out UNCHANGED (the
@@ -1904,6 +1917,22 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
     const lastFormula = group.formulas[group.formulas.length - 1];
     const wrapEnd = wrapEnds.get(lastFormula.from);
     if (wrapEnd === undefined) {
+      continue;
+    }
+    const line = state.doc.lineAt(lastFormula.to);
+    if (wrapEnd === line.to) {
+      // At an unwrapped line end, CM's native block-widget path keeps the
+      // preview out of the caret/composition text boundary.
+      decorations.push(
+        Decoration.widget({
+          widget: createInlineMathRowWidget(
+            key,
+            group.formulas.map((formula) => ({ from: formula.from, tex: formula.tex }))
+          ),
+          side: 1,
+          block: true
+        }).range(line.to)
+      );
       continue;
     }
     const { anchor, side } = resolveInlineMathBandAnchor(state.doc, lastFormula.to, wrapEnd);
