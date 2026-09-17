@@ -1114,27 +1114,22 @@ export function App() {
         const directory = record.directory;
 
         // 2. Export PDF (marksdown rendering happens inside exportArticlePdf)
-        const result = await exportArticlePdf(info.articlePath, settings, {
+        await exportArticlePdf(info.articlePath, settings, {
           markdown: record.body,
           title,
           directory,
           themeGroups: enabledThemeGroups,
-          colorMode: activeTheme?.appearance ?? "dark",
           renderStyleAssetVersion
         });
-
-        if (result.canceled) {
-          setPageError(null);
-        } else if (result.filePath) {
-          setPageError(null);
-        }
+        setPageError(null);
       } catch (error) {
         setPageError(getErrorMessage(error));
+        throw error;
       } finally {
         setBusyMessage(null);
       }
     },
-    [draftValuesRef, enabledThemeGroups, activeTheme, renderStyleAssetVersion, setBusyMessage, setPageError]
+    [draftValuesRef, enabledThemeGroups, renderStyleAssetVersion, setBusyMessage, setPageError]
   );
 
   const { handleDocumentValueChange, handleEditorModelContentChange } = useEditorContentChange({

@@ -8,6 +8,11 @@ declare module "*?raw" {
   export default content;
 }
 
+declare module "*?inline" {
+  const processed: string;
+  export default processed;
+}
+
 declare module "*?worker" {
   const workerConstructor: new () => Worker;
   export default workerConstructor;

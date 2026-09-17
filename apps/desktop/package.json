@@ -10,6 +10,7 @@
     "package:win:local": "node ../../scripts/package-electron.mjs --mode=local",
     "package:win:remote": "node ../../scripts/package-electron.mjs --mode=remote",
     "start": "node ../../scripts/run-electron.mjs apps/desktop",
+    "test": "tsx --test \"src/pdf-export-helpers.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

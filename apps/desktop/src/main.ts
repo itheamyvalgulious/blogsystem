@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, Menu, dialog } from "electron";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,11 +11,24 @@ import {
   type PrintPdfResult,
   VALID_PAGE_SIZES,
 } from "./pdf-export-types";
+import {
+  sanitizePdfFilename,
+  ensurePdfExtension,
+  shouldConfirmPdfOverwrite,
+  clamp,
+  withTimeout,
+  formatBytes,
+} from "./pdf-export-helpers";
 
 const DESKTOP_SHORTCUT_CHANNEL = "blog-system:workbench-shortcut";
 const PRINT_TO_PDF_CHANNEL = "blog-system:print-to-pdf";
 const DEV_START_URL = process.env.BLOG_SYSTEM_ELECTRON_START_URL?.trim();
 const IS_DEV = Boolean(DEV_START_URL);
+
+// Timeout values for PDF generation stages (milliseconds).
+const LOAD_HTML_TIMEOUT_MS = 30_000;
+const FONT_IMAGE_TIMEOUT_MS = 15_000;
+const PRINT_TO_PDF_TIMEOUT_MS = 30_000;
 
 let adminHost: RunningAdminHost | null = null;
 let embeddedServer: { close(): Promise<void> } | null = null;
@@ -30,7 +43,12 @@ function writeDebugLog(message: string) {
     return;
   }
 
-  appendFileSync(debugLogPath, `[${new Date().toISOString()}] ${message}\n`, "utf8");
+  try {
+    appendFileSync(debugLogPath, `[${new Date().toISOString()}] ${message}\n`, "utf8");
+  } catch {
+    // Debug logging is best-effort. A write failure must never interrupt
+    // or break the PDF export flow, so errors are silently swallowed.
+  }
 }
 
 function showDesktopError(error: unknown) {
@@ -84,16 +102,50 @@ function forwardWorkbenchShortcut(window: BrowserWindow, input: Parameters<NonNu
   });
 }
 
-function sanitizePdfFilename(input: string): string {
-  // Normalize both / and \\ separators so path.basename catches everything
-  const normalized = (input || "article").replace(/[/\\]/g, path.sep);
-  const name = path.basename(normalized);
-  // Ensure .pdf extension
-  return name.toLowerCase().endsWith(".pdf") ? name : `${name}.pdf`;
-}
+/**
+ * Wait until fonts and images are ready, with a hard timeout so a single
+ * unloadable resource can never hang PDF generation forever.
+ *
+ * The returned promise always resolves (never rejects): if the timeout fires
+ * we log a warning and proceed to print with whatever is already rendered.
+ */
+async function waitForResourcesReady(window: BrowserWindow): Promise<void> {
+  const script = `Promise.race([
+    Promise.all([
+      document.fonts ? document.fonts.ready : Promise.resolve(),
+      ...Array.from(document.images, image => image.complete
+        ? Promise.resolve()
+        : new Promise(resolve => {
+            image.addEventListener("load", resolve, { once: true });
+            image.addEventListener("error", resolve, { once: true });
+          }))
+    ]).then(() => "ready", () => "ready"),
+    new Promise(resolve => setTimeout(() => resolve("timeout"), ${FONT_IMAGE_TIMEOUT_MS}))
+  ])`;
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+  let outcome: unknown;
+  try {
+    // The injected script already races against FONT_IMAGE_TIMEOUT_MS; this
+    // outer timeout is a second safety net in case the renderer itself stops
+    // responding and never settles `executeJavaScript`.
+    outcome = await withTimeout(
+      window.webContents.executeJavaScript(script),
+      FONT_IMAGE_TIMEOUT_MS + 5_000,
+      "Waiting for fonts/images"
+    );
+  } catch (error) {
+    // A script error / timeout should not abort generation — print what we have.
+    writeDebugLog(
+      `pdf-export: resource-wait failed, proceeding: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return;
+  }
+
+  if (outcome === "timeout") {
+    writeDebugLog(
+      `pdf-export: font/image wait timed out after ${FONT_IMAGE_TIMEOUT_MS}ms, proceeding to print`
+    );
+  }
 }
 
 /**
@@ -103,6 +155,9 @@ function clamp(value: number, min: number, max: number): number {
  * The HTML is written to a temporary file to avoid CORS restrictions when
  * loading resources (images, fonts) from the admin server. The file is
  * cleaned up after PDF generation.
+ *
+ * Every failure is wrapped with the stage that produced it so the UI can
+ * show a diagnosable message.
  */
 async function generatePdfFromHtml(
   html: string,
@@ -113,7 +168,16 @@ async function generatePdfFromHtml(
   let pdfWindow: BrowserWindow | null = null;
 
   try {
-    await writeFile(tempFile, html, "utf8");
+    writeDebugLog(`pdf-export: rendering started (html bytes=${html.length})`);
+
+    try {
+      await writeFile(tempFile, html, "utf8");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      writeDebugLog(`pdf-export: failed to write temp HTML: ${detail}`);
+      throw new Error(`Failed to write temporary HTML file: ${detail}`);
+    }
+
     pdfWindow = new BrowserWindow({
       show: false,
       webPreferences: {
@@ -122,17 +186,43 @@ async function generatePdfFromHtml(
         sandbox: true,
       },
     });
-    await pdfWindow.loadURL(pathToFileURL(tempFile).href);
-    await pdfWindow.webContents.executeJavaScript(`Promise.all([
-      document.fonts ? document.fonts.ready : Promise.resolve(),
-      ...Array.from(document.images, image => image.complete
-        ? Promise.resolve()
-        : new Promise(resolve => {
-            image.addEventListener("load", resolve, { once: true });
-            image.addEventListener("error", resolve, { once: true });
-          }))
-    ])`);
-    return await pdfWindow.webContents.printToPDF(printOptions);
+
+    try {
+      await withTimeout(
+        pdfWindow.loadURL(pathToFileURL(tempFile).href),
+        LOAD_HTML_TIMEOUT_MS,
+        "Loading HTML in hidden window"
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      writeDebugLog(`pdf-export: failed to load HTML: ${detail}`);
+      throw new Error(`Failed to load HTML in hidden window: ${detail}`);
+    }
+
+    await waitForResourcesReady(pdfWindow);
+
+    let buffer: Buffer;
+    try {
+      buffer = await withTimeout(
+        pdfWindow.webContents.printToPDF(printOptions),
+        PRINT_TO_PDF_TIMEOUT_MS,
+        "Rendering PDF"
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      writeDebugLog(`pdf-export: failed to render PDF: ${detail}`);
+      throw new Error(`Failed to render PDF: ${detail}`);
+    }
+
+    if (!buffer || buffer.length === 0) {
+      writeDebugLog("pdf-export: failed to render PDF: printToPDF returned an empty buffer");
+      throw new Error("Failed to render PDF: printToPDF returned an empty buffer");
+    }
+
+    writeDebugLog(
+      `pdf-export: rendering completed (pdf bytes=${buffer.length}, ${formatBytes(buffer.length)})`
+    );
+    return buffer;
   } finally {
     if (pdfWindow && !pdfWindow.isDestroyed()) {
       pdfWindow.destroy();
@@ -181,7 +271,36 @@ async function handlePrintToPdf(
   });
 
   if (canceled || !filePath) {
+    writeDebugLog("pdf-export: save dialog canceled");
     return { canceled: true };
+  }
+
+  // The save dialog may return a path without a `.pdf` suffix (the user can
+  // type anything, and the filter is only a hint). Normalise it so what we
+  // write and what we report always match. Existing casing is preserved.
+  const targetPath = ensurePdfExtension(filePath);
+  writeDebugLog(`pdf-export: target path chosen (${targetPath})`);
+
+  // If we changed the path (appended .pdf) and the target already exists,
+  // the native save dialog's overwrite confirmation does not cover it.
+  // Show a secondary confirmation to preserve overwrite semantics.
+  if (shouldConfirmPdfOverwrite(filePath, targetPath, existsSync(targetPath))) {
+    const { response } = await dialog.showMessageBox(window, {
+      type: "warning",
+      buttons: ["Cancel", "Overwrite"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Confirm overwrite",
+      message: `"${path.basename(targetPath)}" already exists.`,
+      detail: "The original filename did not include a .pdf extension. Do you want to replace the existing file with the exported PDF?",
+    });
+
+    if (response !== 1) {
+      writeDebugLog("pdf-export: overwrite confirmation declined");
+      return { canceled: true };
+    }
+
+    writeDebugLog("pdf-export: overwrite confirmed");
   }
 
   // --- Build Electron print options ---
@@ -217,13 +336,56 @@ async function handlePrintToPdf(
     pdfBuffer = await generatePdfFromHtml(html, printOptions);
   } else {
     // Fallback: capture the admin window (legacy path)
-    pdfBuffer = await window.webContents.printToPDF(printOptions);
+    try {
+      pdfBuffer = await withTimeout(
+        window.webContents.printToPDF(printOptions),
+        PRINT_TO_PDF_TIMEOUT_MS,
+        "Rendering PDF (fallback path)"
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      writeDebugLog(`pdf-export: fallback render failed: ${detail}`);
+      throw new Error(`Failed to render PDF (fallback path): ${detail}`);
+    }
+
+    if (!pdfBuffer || pdfBuffer.length === 0) {
+      writeDebugLog("pdf-export: fallback render returned empty buffer");
+      throw new Error("Failed to render PDF (fallback path): printToPDF returned an empty buffer");
+    }
+
+    writeDebugLog(
+      `pdf-export: fallback rendering completed (pdf bytes=${pdfBuffer.length}, ${formatBytes(pdfBuffer.length)})`
+    );
   }
 
   // --- Write to chosen path ---
-  await writeFile(filePath, pdfBuffer);
+  writeDebugLog(`pdf-export: writing to ${targetPath} (${pdfBuffer.length} bytes)`);
 
-  return { canceled: false, filePath };
+  try {
+    await writeFile(targetPath, pdfBuffer);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    writeDebugLog(`pdf-export: write failed (${targetPath}): ${detail}`);
+    throw new Error(`Failed to write PDF file: ${detail}`);
+  }
+
+  // Verify the file after writing.
+  try {
+    const stats = statSync(targetPath);
+    if (!stats.isFile()) {
+      throw new Error(`Not a regular file`);
+    }
+    if (stats.size === 0) {
+      throw new Error(`Written file is empty`);
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    writeDebugLog(`pdf-export: post-write validation failed (${targetPath}): ${detail}`);
+    throw new Error(`PDF file validation failed after write: ${detail}`);
+  }
+
+  writeDebugLog("pdf-export: write completed and verified successfully");
+  return { canceled: false, filePath: targetPath };
 }
 
 async function startEmbeddedServer(serverPort: number) {

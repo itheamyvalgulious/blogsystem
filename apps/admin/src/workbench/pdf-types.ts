@@ -61,6 +61,23 @@ export interface PdfPrintResult {
   filePath?: string;
 }
 
+/** Which export pipeline handled a PDF export request. */
+export type PdfExportMethod = "electron" | "browser";
+
+/**
+ * The unified result from exportArticlePdf.
+ *
+ * - Electron path (`method: "electron"`): `canceled` comes from the save dialog;
+ *   `filePath` contains the chosen path when the user confirmed.
+ * - Browser path (`method: "browser"`): `canceled` is always `false` — browsers
+ *   cannot distinguish print vs cancel via `window.print()`; `filePath` is unset.
+ */
+export interface PdfExportResult {
+  method: PdfExportMethod;
+  canceled: boolean;
+  filePath?: string;
+}
+
 /** Default settings for a fresh export dialog. */
 export const DEFAULT_PDF_SETTINGS: PdfExportSettings = {
   pageSize: "A4",
