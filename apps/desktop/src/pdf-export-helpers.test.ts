@@ -12,6 +12,7 @@ import {
   clamp,
   ensurePdfExtension,
   formatBytes,
+  printMarginsMmToInches,
   sanitizePdfFilename,
   shouldConfirmPdfOverwrite,
   withTimeout,
@@ -225,5 +226,36 @@ describe("shouldConfirmPdfOverwrite", () => {
       shouldConfirmPdfOverwrite("/path/report.PDF", "/path/report.PDF", true),
       false,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// printMarginsMmToInches
+// ---------------------------------------------------------------------------
+describe("printMarginsMmToInches", () => {
+  const mmPerInch = 25.4;
+
+  it("converts standard 20/15 mm margins to inches", () => {
+    const result = printMarginsMmToInches({ top: 20, right: 15, bottom: 20, left: 15 });
+    assert.ok(Math.abs(result.top - 20 / mmPerInch) < 1e-9, `top=${result.top}`);
+    assert.ok(Math.abs(result.bottom - 20 / mmPerInch) < 1e-9, `bottom=${result.bottom}`);
+    assert.ok(Math.abs(result.left - 15 / mmPerInch) < 1e-9, `left=${result.left}`);
+    assert.ok(Math.abs(result.right - 15 / mmPerInch) < 1e-9, `right=${result.right}`);
+  });
+
+  it("clamps values above 50 mm to 50 mm", () => {
+    const result = printMarginsMmToInches({ top: 999, right: 0, bottom: 0, left: 0 });
+    assert.ok(Math.abs(result.top - 50 / mmPerInch) < 1e-9, `top=${result.top}`);
+  });
+
+  it("clamps negative values to 0", () => {
+    const result = printMarginsMmToInches({ top: -5, right: 0, bottom: 0, left: 0 });
+    assert.equal(result.top, 0);
+  });
+
+  it("treats non-numeric input as 0", () => {
+    const result = printMarginsMmToInches({ top: "abc" as unknown as number, right: undefined as unknown as number, bottom: 0, left: 0 });
+    assert.equal(result.top, 0);
+    assert.equal(result.right, 0);
   });
 });

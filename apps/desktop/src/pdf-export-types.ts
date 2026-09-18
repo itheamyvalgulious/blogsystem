@@ -2,7 +2,8 @@
  * Shared types for the Electron PDF export IPC bridge.
  *
  * Margin units: millimeters (mm) on the wire. The handler converts them to
- * Electron's internal pixel unit (1 mm ≈ 3.779527559 px at 96 DPI).
+ * inches (mm ÷ 25.4), because Electron 42's printToPDF custom margin values
+ * are interpreted as inches (the "in pixels" doc in electron.d.ts is stale).
  * If the renderer provides CSS-driven margins via @page, set `preferCSSPageSize`
  * to true (the handler does this). Custom margin values pass through with
  * marginType: 'custom'; they override CSS page margins.
@@ -53,9 +54,9 @@ export interface PrintPdfRequest {
   documentOutline?: boolean;
 
   /**
-   * Custom margins in **millimeters**. The handler converts mm to pixels
-   * (1 mm = 3.779527559 px at 96 DPI) and passes them to Electron's
-   * PrintToPDFOptions with marginType: 'custom'.
+   * Custom margins in **millimeters**. The handler converts mm to inches
+   * (mm ÷ 25.4) because Electron 42's printToPDF interprets custom margin
+   * values as inches, not pixels (the "pixels" doc in electron.d.ts is stale).
    *
    * When absent, CSS @page margin rules are honored (preferCSSPageSize=true).
    */

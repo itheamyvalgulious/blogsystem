@@ -51,6 +51,33 @@ export function clamp(value: number, min: number, max: number): number {
 }
 
 /**
+ * Convert renderer-provided millimeter margins to the inch values Electron's
+ * printToPDF expects for custom margins.
+ *
+ * Electron (verified on 42) interprets `PrintToPDFOptions.margins` numbers as
+ * inches — the "in pixels" wording in electron.d.ts is stale. Sending
+ * millimeters or pixels makes 20 mm become "75 inches", exceeding any page
+ * size and failing with "margins must be less than or equal to pageSize".
+ *
+ * Each side is clamped to [0, 50] mm (matching the export dialog's own
+ * 0–50 mm range; 50 mm stays valid on the smallest supported page size,
+ * A6 portrait: 50 + 50 = 100 < 105 mm width) and non-numeric input becomes 0.
+ */
+export function printMarginsMmToInches(
+  margins: Record<string, unknown>,
+): { top: number; bottom: number; left: number; right: number } {
+  const toInches = (value: unknown): number =>
+    clamp(typeof value === "number" ? value : 0, 0, 50) / 25.4;
+
+  return {
+    top: toInches(margins.top),
+    bottom: toInches(margins.bottom),
+    left: toInches(margins.left),
+    right: toInches(margins.right),
+  };
+}
+
+/**
  * Race a promise against a timeout.
  *
  * If the timeout fires before `promise` settles, the returned promise rejects

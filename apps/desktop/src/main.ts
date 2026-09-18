@@ -12,12 +12,13 @@ import {
   VALID_PAGE_SIZES,
 } from "./pdf-export-types";
 import {
-  sanitizePdfFilename,
-  ensurePdfExtension,
-  shouldConfirmPdfOverwrite,
   clamp,
-  withTimeout,
+  ensurePdfExtension,
   formatBytes,
+  printMarginsMmToInches,
+  sanitizePdfFilename,
+  shouldConfirmPdfOverwrite,
+  withTimeout,
 } from "./pdf-export-helpers";
 
 const DESKTOP_SHORTCUT_CHANNEL = "blog-system:workbench-shortcut";
@@ -313,17 +314,14 @@ async function handlePrintToPdf(
     generateTaggedPDF,
   };
 
-  // Custom margins — convert mm → px (96 DPI: 1 mm ≈ 3.779527559 px)
+  // Custom margins — Electron interprets custom margin numbers as inches
+  // (verified on Electron 42; the "pixels" doc in electron.d.ts is stale).
+  // Convert the renderer's millimeter values, clamped to the dialog's 0–50 mm range.
   const marginsMm = body.marginsMm;
   if (marginsMm && typeof marginsMm === "object") {
-    const mm = marginsMm as Record<string, unknown>;
-    const mmToPx = (v: unknown) => clamp(typeof v === "number" ? v * 3.779527559 : 0, 0, 1000);
     printOptions.margins = {
       marginType: "custom",
-      top: mmToPx(mm.top),
-      bottom: mmToPx(mm.bottom),
-      left: mmToPx(mm.left),
-      right: mmToPx(mm.right),
+      ...printMarginsMmToInches(marginsMm as Record<string, unknown>),
     };
   }
 
