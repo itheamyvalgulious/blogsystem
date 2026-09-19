@@ -81,13 +81,36 @@ export function rejectAfterTimeout<T>(
 // Print CSS
 // ---------------------------------------------------------------------------
 
-/** CSS injected only during PDF rendering — hides elements from print output. */
+/**
+ * CSS injected only during PDF rendering.
+ *
+ * - `.no-pdf` blocks are hidden from the print output.
+ * - `background-image: none` on html/body: a painted canvas background on
+ *   the root, combined with full-page semi-transparent layers (e.g. the
+ *   fixed `.paper-background` in the atlas theme), makes Chromium's print
+ *   pipeline emit pages that render blank in pdfium (the PDF viewer in
+ *   Chrome/Edge). The root therefore never paints background images.
+ * - `.paper-background` (a DOM node the PDF template always emits, so this
+ *   selector is system-controlled) instead carries the theme's site
+ *   background image and base color as a single multi-background layer.
+ *   Verified empirically: painting the image on the decoration container
+ *   itself renders correctly in pdfium (the image shows up in the page
+ *   margins), while an extra sibling layer carrying the image still
+ *   triggers the blank-page bug. Themes with `--site-background-image:
+ *   none` (the default) degrade to a solid `--bg` page base — visually
+ *   identical to the site's paper look.
+ */
 export const PDF_PRINT_CSS = `
 @media print {
   .no-pdf { display: none !important; }
   body {
     margin: 0;
     padding: 0;
+  }
+  html, body { background-image: none !important; }
+  .paper-background {
+    background: var(--site-background-image, none) center / cover no-repeat,
+      var(--bg, #ffffff) !important;
   }
 }
 `;

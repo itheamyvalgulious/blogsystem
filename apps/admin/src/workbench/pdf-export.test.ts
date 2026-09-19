@@ -324,6 +324,33 @@ test("buildPdfHtml still includes @page and PDF_PRINT_CSS alongside browser over
 });
 
 // ---------------------------------------------------------------------------
+// PDF_PRINT_CSS — pdfium blank-page workaround
+// ---------------------------------------------------------------------------
+
+test("PDF_PRINT_CSS moves site background images off the root for pdfium compatibility", () => {
+  // Root must never paint background images (pdfium blank-page workaround).
+  assert.ok(PDF_PRINT_CSS.includes("html, body { background-image: none !important; }"));
+  // The decoration container the PDF template always emits carries the
+  // theme's site background image + base color as a single multi-background.
+  assert.ok(PDF_PRINT_CSS.includes(".paper-background"));
+  assert.ok(PDF_PRINT_CSS.includes("var(--site-background-image, none)"));
+  assert.ok(PDF_PRINT_CSS.includes("var(--bg, #ffffff)"));
+  // Both rules live inside the @media print block (it spans the whole constant).
+  assert.ok(PDF_PRINT_CSS.trim().startsWith("@media print"));
+  // And buildPdfHtml embeds the print CSS into the document.
+  const html = buildPdfHtml(
+    "t",
+    "<p>hi</p>",
+    DEFAULT_PDF_SETTINGS,
+    [],
+    "",
+    ""
+  );
+  assert.ok(html.includes("html, body { background-image: none !important; }"));
+  assert.ok(html.includes("var(--site-background-image, none)"));
+});
+
+// ---------------------------------------------------------------------------
 // Source-level regression guard for KaTeX CSS processing
 // ---------------------------------------------------------------------------
 
