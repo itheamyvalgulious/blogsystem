@@ -20,6 +20,7 @@ config/admin.local.json
 .mimocode
 .vscode
 temp.png
+/temp/
 config.json
 # 由 scripts/sync-quiver.mjs 生成，权威副本在 packages/commutative/vendor/quiver/
 apps/admin/public/quiver/
