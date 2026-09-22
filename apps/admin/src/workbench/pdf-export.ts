@@ -230,7 +230,12 @@ async function waitForDocumentResources(doc: Document, timeoutMs: number): Promi
         })
   );
 
-  await settleWithin(Promise.all([fontsWaiter, ...imageWaiters]), timeoutMs, undefined);
+  // Background bake: wait for the PDF bake script (gradient rasterisation) to
+  // complete before triggering print. The script is embedded by buildPdfHtml.
+  const frameWindow = (doc as Document & { defaultView?: Window & { __pdfBakePromise?: Promise<unknown> } }).defaultView;
+  const bakeWaiter: Promise<unknown> = frameWindow?.__pdfBakePromise ?? Promise.resolve();
+
+  await settleWithin(Promise.all([fontsWaiter, bakeWaiter, ...imageWaiters]), timeoutMs, undefined);
 }
 
 /**

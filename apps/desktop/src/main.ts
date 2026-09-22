@@ -119,7 +119,10 @@ async function waitForResourcesReady(window: BrowserWindow): Promise<void> {
         : new Promise(resolve => {
             image.addEventListener("load", resolve, { once: true });
             image.addEventListener("error", resolve, { once: true });
-          }))
+          })),
+      // Wait for background bake script (gradient rasterisation) to finish so
+      // printToPDF captures the baked PNG backgrounds instead of slow tiling patterns.
+      window.__pdfBakePromise ? window.__pdfBakePromise : Promise.resolve()
     ]).then(() => "ready", () => "ready"),
     new Promise(resolve => setTimeout(() => resolve("timeout"), ${FONT_IMAGE_TIMEOUT_MS}))
   ])`;

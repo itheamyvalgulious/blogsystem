@@ -11,7 +11,10 @@ import {
   buildBrowserPrintCss,
   rejectAfterTimeout,
   selectEnabledThemeAssets,
-  PDF_PRINT_CSS
+  parseCssUrl,
+  isFullSizeBackgroundSize,
+  PDF_PRINT_CSS,
+  PDF_BAKE_SCRIPT
 } from "./pdf-render-helpers";
 import type { PdfExportSettings } from "./pdf-types";
 import type { ThemeGroupSummary } from "@blog-system/content-core";
@@ -536,6 +539,79 @@ test("selectEnabledThemeAssets excludes JS files (only CSS with matching colorMo
 
 test("selectEnabledThemeAssets returns empty for empty input", () => {
   assert.deepEqual(selectEnabledThemeAssets([]), []);
+});
+
+// ---------------------------------------------------------------------------
+// PDF_BAKE_SCRIPT — pdfium gradient baking
+// ---------------------------------------------------------------------------
+
+test("buildPdfHtml embeds the pdfium bake script and page pixel dimensions", () => {
+  const portrait = buildPdfHtml("t", "<p>hi</p>", { ...DEFAULT_PDF_SETTINGS, orientation: "portrait" }, [], "", "");
+  assert.ok(portrait.includes('data-pdf-page-width-px="794"'));
+  assert.ok(portrait.includes('data-pdf-page-height-px="1123"'));
+  const landscape = buildPdfHtml("t", "<p>hi</p>", { ...DEFAULT_PDF_SETTINGS, orientation: "landscape" }, [], "", "");
+  assert.ok(landscape.includes('data-pdf-page-width-px="1123"'));
+  assert.ok(landscape.includes('data-pdf-page-height-px="794"'));
+  for (const html of [portrait, landscape]) {
+    assert.ok(html.includes("window.__pdfBakePromise"));
+    assert.ok(html.includes("data-pdf-bake-done"));
+  }
+  // The bake script must never restyle the root elements (blank-page guard) and
+  // must skip visually-tiling backgrounds.
+  assert.ok(PDF_BAKE_SCRIPT.includes("el === document.body || el === document.documentElement"));
+  assert.ok(PDF_BAKE_SCRIPT.includes("repeating-"));
+  // Must use matched quotes capture group (group 1 quote, group 2 url) and check m && m[2]
+  assert.ok(PDF_BAKE_SCRIPT.includes("m && m[2]"));
+  // Must skip paper-background stack bake when siteVar is unparseable (preserves original background)
+  assert.ok(PDF_BAKE_SCRIPT.includes("siteCss = null; // unparseable URL: skip stack bake entirely"));
+  assert.ok(PDF_BAKE_SCRIPT.includes("siteCss = null; // unparseable: skip stack bake entirely"));
+  // Must NOT use substring indexOf("100%") which breaks 1D partial sizes
+  assert.ok(!PDF_BAKE_SCRIPT.includes('indexOf("100%")'));
+});
+
+test("parseCssUrl correctly extracts URLs across double, single, and unquoted formats", () => {
+  assert.equal(parseCssUrl('url("https://example.com/bg.png")'), "https://example.com/bg.png");
+  assert.equal(parseCssUrl("url('https://example.com/bg.png')"), "https://example.com/bg.png");
+  assert.equal(parseCssUrl("url(https://example.com/bg.png)"), "https://example.com/bg.png");
+  assert.equal(parseCssUrl('url(  "https://example.com/bg.png"  )'), "https://example.com/bg.png");
+  assert.equal(parseCssUrl("url(  '/assets/paper.jpg'  )"), "/assets/paper.jpg");
+  assert.equal(parseCssUrl("url(/assets/image.svg)"), "/assets/image.svg");
+
+  // Invalid / non-url / empty values return null
+  assert.equal(parseCssUrl("none"), null);
+  assert.equal(parseCssUrl(""), null);
+  assert.equal(parseCssUrl('url("")'), null);
+  assert.equal(parseCssUrl("url('')"), null);
+  assert.equal(parseCssUrl('url("mismatched\')'), null);
+  assert.equal(parseCssUrl("linear-gradient(to right, red, blue)"), null);
+  assert.equal(parseCssUrl("not-a-url"), null);
+});
+
+test("isFullSizeBackgroundSize conservatively allows only full-size layers and rejects partial dimensions", () => {
+  // Allowed full-size keyword and 1D/2D complete coverings
+  assert.equal(isFullSizeBackgroundSize("auto"), true);
+  assert.equal(isFullSizeBackgroundSize("cover"), true);
+  assert.equal(isFullSizeBackgroundSize("contain"), true);
+  assert.equal(isFullSizeBackgroundSize("100%"), true);
+  assert.equal(isFullSizeBackgroundSize("100% 100%"), true);
+  assert.equal(isFullSizeBackgroundSize("auto 100%"), true);
+  assert.equal(isFullSizeBackgroundSize("100% auto"), true);
+  assert.equal(isFullSizeBackgroundSize("auto auto"), true);
+
+  // Multi-layer all safe
+  assert.equal(isFullSizeBackgroundSize("100% 100%, cover"), true);
+  assert.equal(isFullSizeBackgroundSize("cover, contain, auto"), true);
+
+  // Partial dimensions (such as underlines or side markers) must be rejected
+  assert.equal(isFullSizeBackgroundSize("100% 2px"), false);
+  assert.equal(isFullSizeBackgroundSize("40px 100%"), false);
+  assert.equal(isFullSizeBackgroundSize("20px 20px"), false);
+  assert.equal(isFullSizeBackgroundSize("10px 10px"), false);
+  assert.equal(isFullSizeBackgroundSize("calc(100% - 10px) 100%"), false);
+
+  // Mixed layers with any partial dimension must be rejected
+  assert.equal(isFullSizeBackgroundSize("100% 100%, 20px 20px"), false);
+  assert.equal(isFullSizeBackgroundSize("100% 2px, cover"), false);
 });
 
 /**
