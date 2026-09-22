@@ -264,10 +264,65 @@ export function computeInlineMathFormulaLayout(
  * read/write separation — layout reads are forbidden during the update
  * cycle (which includes toDOM/updateDOM).
  */
-export class InlineMathRowWidget extends WidgetType {
-  /** Latest mount's view (jump handlers dispatch to it); refreshed per mount. */
-  private view: EditorView | null = null;
+interface InlineMathRowDomState {
+  formulas: InlineMathFormulaBox[];
+  view: EditorView | null;
+}
+const inlineMathRowDomStates = new WeakMap<HTMLElement, InlineMathRowDomState>();
 
+export type InlineMathBoxOp =
+  | { type: "keep" }
+  | { type: "replace"; tex: string }
+  | { type: "insert"; tex: string };
+
+/**
+ * Per-new-box update plan for the inline-math row band: position i compares
+ * old[i] vs new[i] (keep / replace), surplus new boxes are inserts, surplus
+ * old boxes (index >= result length) are removed by the caller. Pure,
+ * unit-tested.
+ */
+export function planInlineMathBoxes(
+  oldTexs: readonly string[],
+  newTexs: readonly string[]
+): InlineMathBoxOp[] {
+  const ops: InlineMathBoxOp[] = [];
+  const n = Math.min(oldTexs.length, newTexs.length);
+  for (let i = 0; i < n; i++) {
+    if (oldTexs[i] === newTexs[i]) {
+      ops.push({ type: "keep" });
+    } else {
+      ops.push({ type: "replace", tex: newTexs[i] });
+    }
+  }
+  for (let i = n; i < newTexs.length; i++) {
+    ops.push({ type: "insert", tex: newTexs[i] });
+  }
+  return ops;
+}
+
+function createInlineMathBox(): HTMLElement {
+  const item = document.createElement("span");
+  item.className = "cm-lp-inline-math";
+  // jump target: resolve from the row's live state slot at gesture time
+  // (the DOM is reused across content/position updates, so closures over
+  // construction-time offsets would go stale).
+  attachPreviewJumpHandlers(
+    item,
+    (_view, root) => {
+      const row = root.parentElement;
+      if (!row) return null;
+      const state = inlineMathRowDomStates.get(row);
+      const index = Array.prototype.indexOf.call(row.children, root);
+      return state && index >= 0 && state.formulas[index] !== undefined
+        ? state.formulas[index].from + 1
+        : null;
+    },
+    () => inlineMathRowDomStates.get(item.parentElement ?? item)?.view ?? null
+  );
+  return item;
+}
+
+export class InlineMathRowWidget extends WidgetType {
   constructor(
     readonly key: string,
     /** Per-box formula positions; box i jumps to formulas[i].from + 1. */
@@ -281,34 +336,48 @@ export class InlineMathRowWidget extends WidgetType {
   }
 
   override toDOM(view: EditorView): HTMLElement {
-    this.view = view;
     const row = document.createElement("div");
     row.className = "cm-lp-inline-math-row";
     row.setAttribute("contenteditable", "false");
-
     for (const formula of this.formulas) {
-      const item = document.createElement("span");
-      item.className = "cm-lp-inline-math";
+      const item = createInlineMathBox();
       item.innerHTML = inlineMathHtml(formula.tex);
-      // Click-to-jump per formula box: land right after the opening `$`.
-      attachPreviewJumpHandlers(item, () => formula.from + 1, () => this.view);
       row.appendChild(item);
     }
-
+    inlineMathRowDomStates.set(row, { formulas: this.formulas, view });
     this.scheduleLayout(row, view);
     return row;
   }
 
-  override updateDOM(dom: HTMLElement, view: EditorView, widget: WidgetType): boolean {
-    // CM's widget reuse (view/dist findWidget, pass 1) only checks the
-    // CONSTRUCTOR plus updateDOM's result — NOT eq. Returning true for a
-    // widget with different content would keep the stale DOM. Only
-    // same-content widgets may reuse; anything else must be rebuilt.
-    if (!(widget instanceof InlineMathRowWidget) || widget.key !== this.key) {
+  /**
+   * CM's widget reuse (TileCache.findWidget, pass 1) only checks the
+   * CONSTRUCTOR plus updateDOM's result — NOT eq. In-place diffing allows
+   * DOM reuse across position and content changes.
+   */
+  override updateDOM(dom: HTMLElement, view: EditorView, old: WidgetType): boolean {
+    if (!(old instanceof InlineMathRowWidget)) {
       return false;
     }
-    // The cached DOM keeps its listeners; refresh the view they dispatch to.
-    this.view = view;
+    // Position and/or content changes both land here (the decoration key
+    // contains group from/to + content hash, so eq is false exactly when
+    // something needs updating). Rebuild-in-place via the box diff instead of
+    // destroying the row: KaTeX boxes whose tex is unchanged keep their DOM,
+    // changed boxes get fresh innerHTML, surplus boxes are added/removed.
+    const ops = planInlineMathBoxes(old.formulas.map((f) => f.tex), this.formulas.map((f) => f.tex));
+    const items = Array.from(dom.children) as HTMLElement[];
+    items.slice(ops.length).forEach((item) => dom.removeChild(item));
+    this.formulas.forEach((formula, index) => {
+      const op = ops[index];
+      let item = items[index];
+      if (op.type === "insert" || item === undefined) {
+        item = createInlineMathBox();
+        dom.appendChild(item);
+        item.innerHTML = inlineMathHtml(formula.tex);
+      } else if (op.type === "replace") {
+        item.innerHTML = inlineMathHtml(op.tex);
+      }
+    });
+    inlineMathRowDomStates.set(dom, { formulas: this.formulas, view });
     this.scheduleLayout(dom, view);
     return true;
   }
@@ -623,8 +692,32 @@ class InlineMathReplaceWidget extends WidgetType {
     item.className = "cm-lp-inline-math cm-lp-inline-math--replaced";
     item.setAttribute("contenteditable", "false");
     item.innerHTML = inlineMathHtml(this.tex);
-    attachPreviewJumpHandlers(item, () => this.jumpTarget, () => view);
+    attachPreviewJumpHandlers(
+      item,
+      (view, root) => {
+        try {
+          // replace-widget DOM lives in the text flow: resolve the live
+          // range start at gesture time (position-shift-safe).
+          return view.posAtDOM(root, 0) + 1;
+        } catch {
+          return this.jumpTarget;
+        }
+      },
+      () => view
+    );
     return item;
+  }
+
+  /**
+   * In-place DOM reuse for reading-mode inline replacements: when eq is false
+   * (tex changed), update innerHTML in place instead of recreating the DOM node.
+   */
+  override updateDOM(dom: HTMLElement, _view: EditorView, old: WidgetType): boolean {
+    if (!(old instanceof InlineMathReplaceWidget)) {
+      return false;
+    }
+    dom.innerHTML = inlineMathHtml(this.tex);
+    return true;
   }
 }
 

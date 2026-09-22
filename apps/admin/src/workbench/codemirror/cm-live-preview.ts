@@ -1410,12 +1410,36 @@ export const setInlineMathWrapEnds = StateEffect.define<ReadonlyMap<number, numb
 /**
  * Formula start offset → measured wrap end of its visual row (see
  * findVisualRowWrapEnd), covering the viewport plus a buffer. Drives band
- * anchors; on docChanged entries whose formula line or wrap-end line is
- * touched are DROPPED (the band disappears for up to one next-macrotask measure
- * pass — 宁缺毋错) instead of mapped blindly; untouched entries are mapped
- * through the change as before. Rewritten by the measure plugin in the next
- * macrotask (same write/discipline as the tops field). Exported for headless
- * tests.
+ * anchors.
+ *
+ * On docChanged, touched entries are NO LONGER dropped: dropping destroyed
+ * and rebuilt the band widget DOM on every keystroke (the visual flicker bug).
+ * Instead, both untouched and touched entries map their positions through
+ * `tr.changes.mapPos(..., 1)`. For touched entries, the mapped wrapEnd is
+ * clamped to the new logical line boundary `[newLine.from, newLine.to]`,
+ * keeping the band continuously alive.
+ *
+ * The `mapPos` late-bias (assoc +1) ensures that the mapped anchor stays at or
+ * after (>=) the true natural wrap point:
+ * - Insertions push following text rightward, so the true natural wrap point
+ *   can only shift earlier (or stay unchanged), while mapPos shifts rightward.
+ * - Deletions either leave the wrap character's identity unchanged or shift it
+ *   later in logical terms (doc pos >= mapped value).
+ * A late anchor (at or after the natural wrap point) never contaminates
+ * line-breaking rows preceding it, allowing subsequent visual measurement
+ * to self-correct to the exact wrap end ("with no band or a late (line-end)
+ * anchor every row in between is uncontaminated, so it self-corrects"). An
+ * early anchor would split the row prematurely and lock in contaminated
+ * layout; the late-biased mapping avoids this failure mode.
+ *
+ * Known boundary behavior: when edits shorten a wrapped line so it becomes
+ * unwrapped, the band crawls rightward towards the line end over successive
+ * keystrokes until flipping once into the line-end block-widget presentation,
+ * instead of destroying and recreating DOM on every keystroke — this is
+ * intentional and acceptable.
+ *
+ * Rewritten by the measure plugin in the next macrotask (same write/discipline
+ * as the tops field). Exported for headless tests.
  */
 export const livePreviewInlineMathWrapEndsField = StateField.define<ReadonlyMap<number, number>>({
   create: () => new Map(),
@@ -1437,10 +1461,15 @@ export const livePreviewInlineMathWrapEndsField = StateField.define<ReadonlyMap<
             (range.from <= line.to && range.to >= line.from) ||
             (range.from <= endLine.to && range.to >= endLine.from)
         );
-        if (touched) {
-          continue; // stale anchor: drop, re-measure
+        const newFrom = tr.changes.mapPos(from, 1);
+        if (!touched) {
+          mapped.set(newFrom, tr.changes.mapPos(wrapEnd, 1));
+          continue;
         }
-        mapped.set(tr.changes.mapPos(from, 1), tr.changes.mapPos(wrapEnd, 1));
+        // touched: keep the band alive with a mapped, clamped anchor (was: drop)
+        const newLine = tr.newDoc.lineAt(newFrom);
+        const mappedEnd = tr.changes.mapPos(wrapEnd, 1);
+        mapped.set(newFrom, Math.min(Math.max(mappedEnd, newLine.from), newLine.to));
       }
       return mapped;
     }
@@ -1880,7 +1909,18 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
     (from) => state.doc.lineAt(from).number
   );
   for (const group of inlineMathGroups) {
-    const key = `im:${salt}:${contentHash(group.formulas.map((formula) => formula.tex).join("\n"))}`;
+    // Key includes both content hash and all formula positions in the group.
+    // Decoration.widget is a point decoration: when positions shift, CM pass 0
+    // (eq-based reuse) does not invoke any widget method. However, group
+    // position shifts require updateDOM to refresh per-box jump targets and
+    // re-run margin-left layout (scheduleLayout), while content edits require
+    // in-place content diffing in updateDOM. By embedding both content hash and
+    // all formula ranges (from:to) in the key, any shift (including inner
+    // formulas within constant group bounds) or content change causes eq to
+    // return false, forcing CM into pass 1 (updateDOM diff path; see
+    // InlineMathRowWidget.updateDOM in cm-live-preview-widgets.ts).
+    const formulaRanges = group.formulas.map((formula) => `${formula.from}:${formula.to}`).join(",");
+    const key = `im:${salt}:${contentHash(group.formulas.map((formula) => formula.tex).join("\n"))}@${formulaRanges}`;
     // Wrapped rows use an inline widget anchored at the NATURAL END (wrap
     // point) of the formula group's visual row; unwrapped rows take the
     // native line-end block-widget path below. The band's DOM is a full-width

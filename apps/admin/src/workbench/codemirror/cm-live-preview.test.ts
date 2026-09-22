@@ -25,7 +25,8 @@ import {
   computeInlineMathFormulaLayout,
   createInlineMathRowWidget,
   InlineMathRowWidget,
-  isPreviewJumpClick
+  isPreviewJumpClick,
+  planInlineMathBoxes
 } from "./cm-live-preview-widgets";
 import { getReadingMode, isInCursorRegion, setReadingMode } from "./cm-reading-mode";
 import {
@@ -40,6 +41,7 @@ import {
   isInsideMathRange,
   intersectsMultiLineMathRange,
   livePreviewDecorationsField,
+  livePreviewInlineMathWrapEndsField,
   refreshLivePreview,
   reportLivePreviewFloatMode,
   resolveBlockPreviewJumpTarget,
@@ -1627,4 +1629,121 @@ test("below fallback is stable only until measured geometry/content changes", ()
     isLivePreviewBelowFallbackStable(fallback, { ...fallback, lineEndXs: [181] }),
     false
   );
+});
+
+test("livePreviewInlineMathWrapEndsField maps touched entries instead of dropping them", () => {
+  setReadingMode("write");
+  try {
+    let state = EditorState.create({ doc: "a $x$ more\n", extensions: [cmLivePreview] });
+    state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 10]])) }).state;
+
+    // Insertion inside formula: mapPos(10) + 1 = 11, clamped to newLine.to (11)
+    const trInsert = state.update({ changes: { from: 4, insert: "q" } });
+    assert.deepEqual(trInsert.state.field(livePreviewInlineMathWrapEndsField), new Map([[2, 11]]));
+
+    // Deletion inside formula: mapPos(10) - 1 = 9, clamped to newLine.to (9)
+    const trDelete = state.update({ changes: { from: 4, to: 5 } });
+    assert.deepEqual(trDelete.state.field(livePreviewInlineMathWrapEndsField), new Map([[2, 9]]));
+
+    // Insertion of a whole line before this line: untouched entry mapped through
+    const trBefore = state.update({ changes: { from: 0, insert: "zz\n" } });
+    assert.deepEqual(trBefore.state.field(livePreviewInlineMathWrapEndsField), new Map([[5, 13]]));
+  } finally {
+    setReadingMode("read");
+  }
+});
+
+test("editing inside inline math keeps band alive via mapped wrapEnd (anti-flicker)", () => {
+  setReadingMode("write");
+  try {
+    // Unwrapped line case: wrapEnd = line end
+    let state = EditorState.create({ doc: "a $x$ more\n", extensions: [cmLivePreview] });
+    state = state.update({ effects: setInlineMathWrapEnds.of(new Map([[2, 10]])) }).state;
+
+    // Before fix, editing inside formula dropped the wrapEnd and the band disappeared (specs length was 0).
+    const next = state.update({ changes: { from: 4, insert: "q" } }).state;
+    assert.equal(inlineMathBandSpecs(next).length, 1);
+    assert.deepEqual(blockWidgetSpecs(next), [{ from: 11, to: 11, side: 1 }]);
+
+    // Non-line-end wrapEnd / multi-formula case: "a $x$ and $y$ end\n" with wrapEnds [[10, 17]]
+    let multiState = EditorState.create({
+      doc: "a $x$ and $y$ end\n",
+      extensions: [cmLivePreview]
+    });
+    multiState = multiState.update({
+      effects: setInlineMathWrapEnds.of(new Map([[10, 17]]))
+    }).state;
+    // Insert inside the first formula ($x$)
+    const multiNext = multiState.update({ changes: { from: 4, insert: "q" } }).state;
+    assert.ok(inlineMathBandSpecs(multiNext).length >= 1);
+
+    // Wrapped row case (wrapEnd strictly before line end):
+    let wrappedState = EditorState.create({
+      doc: "a $x$ more text\n",
+      extensions: [cmLivePreview]
+    });
+    wrappedState = wrappedState.update({
+      effects: setInlineMathWrapEnds.of(new Map([[2, 5]]))
+    }).state;
+    const wrappedNext = wrappedState.update({ changes: { from: 4, insert: "q" } }).state;
+    assert.equal(inlineMathBandSpecs(wrappedNext).length, 1);
+    // mapPos(5) + 1 = 6, anchor is 6 with side: -1
+    assert.deepEqual(inlineMathBandSpecs(wrappedNext), [{ from: 6, to: 6, side: -1 }]);
+  } finally {
+    setReadingMode("read");
+  }
+});
+
+test("planInlineMathBoxes: pure box diff operations", () => {
+  assert.deepEqual(planInlineMathBoxes([], ["a"]), [{ type: "insert", tex: "a" }]);
+  assert.deepEqual(planInlineMathBoxes(["a"], ["a"]), [{ type: "keep" }]);
+  assert.deepEqual(planInlineMathBoxes(["a", "b"], ["a", "c"]), [
+    { type: "keep" },
+    { type: "replace", tex: "c" }
+  ]);
+  assert.deepEqual(planInlineMathBoxes(["a", "b"], ["a"]), [{ type: "keep" }]);
+  assert.deepEqual(planInlineMathBoxes(["a"], ["a", "b"]), [
+    { type: "keep" },
+    { type: "insert", tex: "b" }
+  ]);
+});
+
+test("inline math row widget key changes when inner formula shifts within constant group bounds", () => {
+  setReadingMode("write");
+  try {
+    const doc1 = "$a$   $b$   $c$\n";
+    let state1 = EditorState.create({ doc: doc1, extensions: [cmLivePreview] });
+    state1 = state1.update({ effects: setInlineMathWrapEnds.of(new Map([[12, 15]])) }).state;
+
+    let widget1: InlineMathRowWidget | null = null;
+    state1.field(livePreviewDecorationsField).decorations.between(0, state1.doc.length, (_from, _to, deco) => {
+      if (deco.spec.widget instanceof InlineMathRowWidget) {
+        widget1 = deco.spec.widget;
+      }
+    });
+    assert.ok(widget1 !== null);
+
+    // Shift intermediate formula $b$ rightward by 1 space while keeping
+    // $a$ and $c$ positions and overall doc length constant:
+    // doc1: "$a$   $b$   $c$\n" -> a:[0,3], b:[6,9], c:[12,15]
+    // doc2: "$a$    $b$  $c$\n" -> a:[0,3], b:[7,10], c:[12,15]
+    const state2 = state1.update({
+      changes: [
+        { from: 3, insert: " " },
+        { from: 10, to: 11 }
+      ]
+    }).state;
+
+    let widget2: InlineMathRowWidget | null = null;
+    state2.field(livePreviewDecorationsField).decorations.between(0, state2.doc.length, (_from, _to, deco) => {
+      if (deco.spec.widget instanceof InlineMathRowWidget) {
+        widget2 = deco.spec.widget;
+      }
+    });
+    assert.ok(widget2 !== null);
+    assert.notEqual((widget1 as InlineMathRowWidget).key, (widget2 as InlineMathRowWidget).key);
+    assert.equal((widget1 as InlineMathRowWidget).eq(widget2 as InlineMathRowWidget), false);
+  } finally {
+    setReadingMode("read");
+  }
 });
