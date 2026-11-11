@@ -1,10 +1,11 @@
 import { app, BrowserWindow, ipcMain, Menu, dialog } from "electron";
 import { appendFileSync, existsSync, statSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { startAdminHostServer, type RunningAdminHost } from "./admin-host";
+import { startPdfDocumentHost, type RunningPdfDocumentHost } from "./pdf-document-host";
 import { loadDesktopRuntimeConfig } from "./runtime-config";
 import {
   type PageSizeString,
@@ -153,33 +154,53 @@ async function waitForResourcesReady(window: BrowserWindow): Promise<void> {
 }
 
 /**
+ * Resolve the origin of the page that requested the export. Asset requests
+ * from the print document are proxied to this origin (see
+ * `pdf-document-host.ts`), so it must be the admin host serving `/media`,
+ * `/content-files`, `/theme-files`, `/assets`, ... .
+ *
+ * @returns `null` when the sender URL is not an http(s) URL.
+ */
+function getSenderOrigin(window: BrowserWindow): string | null {
+  try {
+    const origin = new URL(window.webContents.getURL()).origin;
+    return origin && origin !== "null" ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Create a temporary hidden BrowserWindow, load the given HTML document,
  * generate a PDF, then close the window and return the PDF buffer.
  *
- * The HTML is written to a temporary file to avoid CORS restrictions when
- * loading resources (images, fonts) from the admin server. The file is
- * cleaned up after PDF generation.
+ * The document is served by a short-lived loopback HTTP host rather than a
+ * `file://` temp file. A `file://` document is treated as cross-site by
+ * Chromium: SameSite cookies are withheld from its subresource requests
+ * (authenticated images returned 401) and its webfont requests carry
+ * `Origin: null` (CORS rejected KaTeX/theme fonts). The host proxies asset
+ * requests to the admin origin, so everything stays same-origin and renders.
  *
  * Every failure is wrapped with the stage that produced it so the UI can
  * show a diagnosable message.
  */
 async function generatePdfFromHtml(
   html: string,
-  printOptions: Electron.PrintToPDFOptions
+  printOptions: Electron.PrintToPDFOptions,
+  assetOrigin: string
 ): Promise<Buffer> {
-  const tempDir = await mkdtemp(path.join(app.getPath("temp"), "blog-system-pdf-"));
-  const tempFile = path.join(tempDir, "article.html");
+  let documentHost: RunningPdfDocumentHost | null = null;
   let pdfWindow: BrowserWindow | null = null;
 
   try {
     writeDebugLog(`pdf-export: rendering started (html bytes=${html.length})`);
 
     try {
-      await writeFile(tempFile, html, "utf8");
+      documentHost = await startPdfDocumentHost({ html, assetOrigin });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      writeDebugLog(`pdf-export: failed to write temp HTML: ${detail}`);
-      throw new Error(`Failed to write temporary HTML file: ${detail}`);
+      writeDebugLog(`pdf-export: failed to start document host: ${detail}`);
+      throw new Error(`Failed to start PDF document host: ${detail}`);
     }
 
     pdfWindow = new BrowserWindow({
@@ -193,7 +214,7 @@ async function generatePdfFromHtml(
 
     try {
       await withTimeout(
-        pdfWindow.loadURL(pathToFileURL(tempFile).href),
+        pdfWindow.loadURL(documentHost.url),
         LOAD_HTML_TIMEOUT_MS,
         "Loading HTML in hidden window"
       );
@@ -231,11 +252,7 @@ async function generatePdfFromHtml(
     if (pdfWindow && !pdfWindow.isDestroyed()) {
       pdfWindow.destroy();
     }
-    try {
-      await rm(tempDir, { recursive: true, force: true });
-    } catch {
-      // Temp cleanup is best-effort.
-    }
+    await documentHost?.close().catch(() => undefined);
   }
 }
 
@@ -333,8 +350,18 @@ async function handlePrintToPdf(
 
   if (html) {
     // Renderer provided the article HTML — use a dedicated hidden window
-    // to avoid capturing the admin UI chrome.
-    pdfBuffer = await generatePdfFromHtml(html, printOptions);
+    // to avoid capturing the admin UI chrome. Assets are proxied to the
+    // admin page's origin so authenticated images and webfonts load.
+    const assetOrigin = getSenderOrigin(window);
+
+    if (!assetOrigin) {
+      throw new Error(
+        "Cannot determine the admin origin required to load PDF assets " +
+          `(sender URL: ${window.webContents.getURL() || "<empty>"}).`
+      );
+    }
+
+    pdfBuffer = await generatePdfFromHtml(html, printOptions, assetOrigin);
   } else {
     // Fallback: capture the admin window (legacy path)
     try {

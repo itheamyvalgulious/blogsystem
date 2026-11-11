@@ -3,9 +3,41 @@
  * No Vite-specific imports — safe to run in Node.js tests.
  */
 
+import {
+  COMMUTATIVE_FENCE_LANGUAGE,
+  renderCommutativeFence
+} from "@blog-system/commutative";
+import type {
+  MarkdownFenceRendererDefinition,
+  ThemeGroupSummary
+} from "@blog-system/content-core";
+
 import type { PdfExportSettings } from "./pdf-types";
 import { PAGE_SIZE_CSS } from "./pdf-types";
-import type { ThemeGroupSummary } from "@blog-system/content-core";
+
+// ---------------------------------------------------------------------------
+// Markdown fence renderers
+// ---------------------------------------------------------------------------
+
+/**
+ * Fence renderers shared with the static site and the admin preview.
+ *
+ * PDF export renders the article markdown in isolation (not through the admin
+ * plugin runtime), so it must pass this list explicitly. Without it, fenced
+ * blocks such as ```commutative fall back to plain syntax-highlighted code and
+ * the diagrams disappear from the PDF.
+ */
+export const PDF_FENCE_RENDERERS: MarkdownFenceRendererDefinition[] = [
+  {
+    language: COMMUTATIVE_FENCE_LANGUAGE,
+    name: "commutative",
+    render(context) {
+      // `renderCommutativeFence` never throws: parse failures produce a
+      // visible `commutative--error` placeholder instead of a broken export.
+      return renderCommutativeFence(context.content, context.meta);
+    }
+  }
+];
 
 // ---------------------------------------------------------------------------
 // Theme asset selection
@@ -450,6 +482,28 @@ export interface PdfHtmlBuildOptions {
 }
 
 /**
+ * Random nonce for the CSP that guards the PDF document.
+ *
+ * The print document is served from the admin origin (BrowserWindow host or
+ * srcdoc iframe), and article markdown may contain raw HTML. A CSP with a
+ * script nonce keeps article-injected `<script>`/event handlers from running
+ * with the admin session while still allowing the one built-in bake script.
+ */
+function createCspNonce(): string {
+  const bytes = new Uint8Array(16);
+
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
  * Build the complete HTML document string for PDF rendering.
  * Matches the static-site article content area appearance, excluding admin
  * chrome and non-content elements (header, footer, hero, TOC, pager,
@@ -459,7 +513,8 @@ export interface PdfHtmlBuildOptions {
  * The document also embeds the PDF background bake script
  * ({@link PDF_BAKE_SCRIPT}) which rasterises CSS gradient backgrounds to PNG
  * data URLs before printing, avoiding severe pdfium rendering slowness caused
- * by tiling patterns / shadings in Skia-encoded PDF output.
+ * by tiling patterns / shadings in Skia-encoded PDF output. A CSP restricts
+ * scripts to that bake script via a per-document nonce.
  *
  * @param title - Document title (escaped internally)
  * @param articleHtml - Pre-rendered article content HTML
@@ -483,6 +538,15 @@ export function buildPdfHtml(
   const baseTag = options.baseUrl
     ? `<base href="${escapeHtmlAttribute(options.baseUrl)}">\n`
     : "";
+  const cspNonce = createCspNonce();
+  // Scripts are limited to the bake script's nonce. Inline styles remain
+  // allowed because every theme/KaTeX/commutative stylesheet is inlined.
+  const csp = [
+    "default-src * data: blob:",
+    `script-src 'nonce-${cspNonce}'`,
+    "style-src 'unsafe-inline' * data: blob:",
+    "object-src 'none'"
+  ].join("; ");
 
   // Page pixel dimensions for the background bake script.
   const { pageSize, orientation } = settings;
@@ -495,6 +559,7 @@ export function buildPdfHtml(
 <html data-pdf-page-width-px="${pageW}" data-pdf-page-height-px="${pageH}">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtmlAttribute(title)}</title>
 ${baseTag}${themeCssLinks.join("\n")}
@@ -520,7 +585,7 @@ ${browserOverrideCss}
     </section>
   </main>
 </div>
-<script>
+<script nonce="${cspNonce}">
 ${PDF_BAKE_SCRIPT}
 </script>
 </body>

@@ -13,11 +13,12 @@ import {
   selectEnabledThemeAssets,
   parseCssUrl,
   isFullSizeBackgroundSize,
+  PDF_FENCE_RENDERERS,
   PDF_PRINT_CSS,
   PDF_BAKE_SCRIPT
 } from "./pdf-render-helpers";
 import type { PdfExportSettings } from "./pdf-types";
-import type { ThemeGroupSummary } from "@blog-system/content-core";
+import { renderMarkdownWithKatex, type ThemeGroupSummary } from "@blog-system/content-core";
 import { PAGE_SIZE_CSS, DEFAULT_PDF_SETTINGS } from "./pdf-types";
 
 // ---------------------------------------------------------------------------
@@ -221,6 +222,31 @@ test("buildPdfHtml excludes site header, footer, hero, TOC, pager, and side-pane
   assert.ok(!html.includes("article-hero"));
 });
 
+test("buildPdfHtml restricts scripts to the bake script via a nonce CSP", () => {
+  const html = buildPdfHtml("CSP", "<p>content</p>", DEFAULT_PDF_SETTINGS, [], "", "");
+  const cspMatch = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/.exec(html);
+  assert.ok(cspMatch, "CSP meta tag must be present");
+
+  const csp = cspMatch[1];
+  const nonceMatch = /script-src 'nonce-([0-9a-f]{32})'/.exec(csp);
+  assert.ok(nonceMatch, "script-src must use a per-document nonce");
+  assert.ok(!csp.includes("script-src 'unsafe-inline'"));
+
+  // Inline styles must stay allowed: theme, KaTeX, and commutative CSS are
+  // all embedded as <style> elements.
+  assert.ok(csp.includes("style-src 'unsafe-inline'"));
+  assert.ok(html.includes(`<script nonce="${nonceMatch[1]}">`));
+});
+
+test("buildPdfHtml uses a fresh CSP nonce per document", () => {
+  const first = buildPdfHtml("A", "<p>a</p>", DEFAULT_PDF_SETTINGS, [], "", "");
+  const second = buildPdfHtml("B", "<p>b</p>", DEFAULT_PDF_SETTINGS, [], "", "");
+  const firstNonce = /script-src 'nonce-([0-9a-f]{32})'/.exec(first)?.[1];
+  const secondNonce = /script-src 'nonce-([0-9a-f]{32})'/.exec(second)?.[1];
+  assert.ok(firstNonce && secondNonce);
+  assert.notEqual(firstNonce, secondNonce);
+});
+
 test("buildPdfHtml escapes HTML in the title", () => {
   const html = buildPdfHtml(
     'Article <script>alert("xss")</script>',
@@ -351,6 +377,50 @@ test("PDF_PRINT_CSS moves site background images off the root for pdfium compati
   );
   assert.ok(html.includes("html, body { background-image: none !important; }"));
   assert.ok(html.includes("var(--site-background-image, none)"));
+});
+
+// ---------------------------------------------------------------------------
+// PDF_FENCE_RENDERERS — diagrams must render, not degrade to code blocks
+// ---------------------------------------------------------------------------
+
+test("PDF_FENCE_RENDERERS renders commutative fences as diagrams with inline CSS", async () => {
+  const markdown = [
+    "before",
+    "",
+    "```commutative",
+    String.raw`A \arrow[r] \arrow[d] & B \arrow[d] \\`,
+    String.raw`C \arrow[r] & D`,
+    "```",
+    "",
+    "after"
+  ].join("\n");
+
+  const rendered = await renderMarkdownWithKatex(markdown, null, PDF_FENCE_RENDERERS);
+
+  assert.equal(rendered.errors?.length ?? 0, 0);
+  assert.ok(rendered.html.includes('class="commutative"'), "diagram figure must be emitted");
+  assert.ok(rendered.html.includes("cg-svg"), "diagram SVG must be emitted");
+  assert.ok(
+    rendered.html.includes("data-markdown-fence-renderers"),
+    "diagram CSS must be embedded in the document"
+  );
+  assert.ok(
+    rendered.html.includes(".commutative") && rendered.html.includes(".cg-node"),
+    "diagram CSS rules must be present"
+  );
+  // The raw fence must not fall through to a highlighted code block.
+  assert.ok(!rendered.html.includes("language-commutative"));
+});
+
+test("PDF_FENCE_RENDERERS keeps parse errors visible instead of throwing", async () => {
+  const rendered = await renderMarkdownWithKatex(
+    ["```commutative", "\\arrow[", "```"].join("\n"),
+    null,
+    PDF_FENCE_RENDERERS
+  );
+
+  assert.equal(rendered.errors?.length ?? 0, 0);
+  assert.ok(rendered.html.includes("commutative--error"));
 });
 
 // ---------------------------------------------------------------------------

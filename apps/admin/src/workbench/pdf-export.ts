@@ -40,6 +40,7 @@ import {
   buildBrowserPrintCss,
   rejectAfterTimeout,
   selectEnabledThemeAssets,
+  PDF_FENCE_RENDERERS,
   PDF_PRINT_CSS,
   escapeHtmlAttribute
 } from "./pdf-render-helpers";
@@ -51,12 +52,14 @@ import {
 /**
  * Render article markdown to HTML using the same pipeline as the static site
  * (renderMarkdownWithKatex → rewriteManagedMediaUrls → rewriteRelativeAssetUrls).
+ * `PDF_FENCE_RENDERERS` mirrors the site/preview plugins so fenced blocks
+ * (commutative diagrams, ...) render instead of falling back to code blocks.
  */
 async function renderArticleHtml(
   markdown: string,
   directory: string
 ): Promise<string> {
-  const rendered = await renderMarkdownWithKatex(markdown, null, []);
+  const rendered = await renderMarkdownWithKatex(markdown, null, PDF_FENCE_RENDERERS);
   if ((rendered.errors?.length ?? 0) > 0) {
     throw new Error(
       `Markdown rendering failed: ${rendered.errors
@@ -380,8 +383,6 @@ export async function exportArticlePdf(
     options.renderStyleAssetVersion
   );
 
-  // <base> lets relative asset URLs (images, etc.) resolve when the document
-  // is loaded from a BrowserWindow or iframe with a different base URL.
   const baseUrl = window.location.origin;
 
   const desktopApi = window.blogSystemDesktop;
@@ -389,8 +390,16 @@ export async function exportArticlePdf(
     // -----------------------------------------------------------------------
     // Electron path — IPC to main process.
     //
-    // No browser print overrides: Electron applies printBackground/scale via
-    // printToPDF options, so embedding CSS for them would double-apply.
+    // No <base> tag and no browser print overrides here:
+    // - The main process serves this document from a loopback HTTP host and
+    //   reverse-proxies asset requests to the admin origin (see
+    //   apps/desktop/src/pdf-document-host.ts). Root-relative URLs like
+    //   /media/... therefore stay same-origin with the document, so the
+    //   session cookie is attached and no CORS applies. Adding <base> would
+    //   point them at the admin origin instead, re-breaking authenticated
+    //   images and webfonts inside the hidden BrowserWindow.
+    // - Electron applies printBackground/scale via printToPDF options, so
+    //   embedding CSS for them would double-apply.
     // -----------------------------------------------------------------------
     const html = buildPdfHtml(
       options.title,
@@ -398,8 +407,7 @@ export async function exportArticlePdf(
       settings,
       themeCssLinks,
       katexCssProcessed,
-      highlightThemeCss,
-      { baseUrl }
+      highlightThemeCss
     );
 
     const safeFileName = options.title
