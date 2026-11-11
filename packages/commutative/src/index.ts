@@ -1078,6 +1078,9 @@ function renderQuiverArrowEdge(
   } catch {
     return "";
   }
+  if (!start || !end || start.t >= end.t) {
+    return "";
+  }
 
   const sourceOrigin = geometry.origin().source;
   const angle = geometry.angle();
@@ -1161,6 +1164,9 @@ function renderQuiverArrowEdge(
     total_width_of_heads: headHeads.total_width,
     total_width_of_tails: tailHeads.total_width
   });
+  if (!edgePath.path.toString()) {
+    return "";
+  }
 
   const matrix = createSvgMatrix(sourceOrigin, offset, angle, shift);
   const matrixValue = `matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e} ${matrix.f})`;
@@ -1283,11 +1289,58 @@ export function renderCommutativeStaticHtml(
   const vertices = document.cells.filter((cell): cell is CommutativeVertexCell => cell.kind === "vertex");
   const edges = document.cells.filter((cell): cell is CommutativeEdgeCell => cell.kind === "edge");
 
+  const sizes = vertices.map((vertex) => measureLabel(vertex.label));
+
+  const minCol = vertices.length > 0 ? Math.min(0, ...vertices.map((v) => v.x)) : 0;
+  const maxCol = vertices.length > 0 ? Math.max(0, ...vertices.map((v) => v.x)) : 0;
+  const minRow = vertices.length > 0 ? Math.min(0, ...vertices.map((v) => v.y)) : 0;
+  const maxRow = vertices.length > 0 ? Math.max(0, ...vertices.map((v) => v.y)) : 0;
+
+  const colWidths = new Map<number, number>();
+  for (let c = minCol; c <= maxCol; c += 1) {
+    let maxWidth = 0;
+    for (let index = 0; index < vertices.length; index += 1) {
+      if (vertices[index].x === c) {
+        maxWidth = Math.max(maxWidth, sizes[index].width);
+      }
+    }
+    colWidths.set(c, Math.max(GRID_X, maxWidth + GRID_X / 2));
+  }
+
+  const rowHeights = new Map<number, number>();
+  for (let r = minRow; r <= maxRow; r += 1) {
+    let maxHeight = 0;
+    for (let index = 0; index < vertices.length; index += 1) {
+      if (vertices[index].y === r) {
+        maxHeight = Math.max(maxHeight, sizes[index].height);
+      }
+    }
+    rowHeights.set(r, Math.max(GRID_Y, maxHeight + GRID_Y / 2));
+  }
+
+  const colCentres = new Map<number, number>();
+  let currentX = PADDING_X;
+  for (let c = minCol; c <= maxCol; c += 1) {
+    const w = colWidths.get(c)!;
+    colCentres.set(c, currentX + w / 2);
+    currentX += w;
+  }
+
+  const rowCentres = new Map<number, number>();
+  let currentY = PADDING_Y;
+  for (let r = minRow; r <= maxRow; r += 1) {
+    const h = rowHeights.get(r)!;
+    rowCentres.set(r, currentY + h / 2);
+    currentY += h;
+  }
+
   const nodes = vertices.map((vertex, index) => {
-    const size = measureLabel(vertex.label);
+    const size = sizes[index];
+    const centreX = colCentres.get(vertex.x) ?? PADDING_X + vertex.x * GRID_X;
+    const centreY = rowCentres.get(vertex.y) ?? PADDING_Y + vertex.y * GRID_Y;
     return {
-      centreX: PADDING_X + vertex.x * GRID_X,
-      centreY: PADDING_Y + vertex.y * GRID_Y,
+      centreX,
+      centreY,
       colour: vertex.labelColour,
       height: size.height,
       html: renderMath(vertex.label),

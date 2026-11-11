@@ -332,6 +332,9 @@ export class QuiverArrowGeometry {
     }
 
     let arclen_line = arclen_to_end - arclen_to_start;
+    if (arclen_line <= 0) {
+      return { dash_array: null, path: new Path() };
+    }
     let dashes = [arclen_line];
 
     if (this.style.dash_style !== QUIVER_CONSTANTS.ARROW_DASH_STYLE.SOLID) {
@@ -404,8 +407,15 @@ export class QuiverArrowGeometry {
       }
     }
 
+    const dashStart = Math.max(0, arclen_to_start);
+    const dashEnd = Math.max(0, arclen - arclen_to_end);
+    const validDashes = dashes.every((d) => Number.isFinite(d) && d >= 0);
+    if (!validDashes || !Number.isFinite(dashStart) || !Number.isFinite(dashEnd)) {
+      return { dash_array: null, path: new Path() };
+    }
+
     return {
-      dash_array: `0 ${arclen_to_start} ${dashes.join(" ")} ${arclen - arclen_to_end}`,
+      dash_array: `0 ${dashStart} ${dashes.join(" ")} ${dashEnd}`,
       path
     };
   }

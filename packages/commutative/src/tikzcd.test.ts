@@ -218,3 +218,22 @@ A & B \\\\
   assert.deepEqual((edges[0] as any).options.shortenPt, { source: 10, target: 0 });
   assert.deepEqual((edges[0] as any).options.shorten, { source: 0, target: 0 });
 });
+
+test("renderCommutativeFence dynamically expands columns for wide nodes without negative dasharray", () => {
+  const body = `&& \\cdots \\\\
+\t{\\tilde H_n(X)} & {\\tilde H_n(A)\\oplus \\tilde H_n(B)} & {\\tilde H_n(SX)} \\\\
+\t{\\tilde H_{n-1}(X)} & {\\tilde H_{n-1}(A)\\oplus \\tilde H_{n-1}(B)} & \\cdots
+\t\\arrow[from=1-3, to=2-1]
+\t\\arrow[from=2-1, to=2-2]
+\t\\arrow[from=2-2, to=2-3]
+\t\\arrow[from=2-3, to=3-1]
+\t\\arrow[from=3-1, to=3-2]
+\t\\arrow[from=3-2, to=3-3]`;
+  const out = renderCommutativeFence(body, "");
+  assert.ok(out.html.includes("<svg"));
+  // Must not have invalid negative stroke-dasharray (e.g. ` -8.` or negative numbers in dasharray)
+  assert.doesNotMatch(out.html, /stroke-dasharray="[^"]*-\d+/);
+  // Must render edges
+  assert.match(out.html, /class="cg-edge"/);
+});
+
